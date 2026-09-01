@@ -1,8 +1,8 @@
 # Turnip — Tricking Video Auto-Editor + Community Labeling Platform
 
-*Rev 3 · 2026-09-01 · Draft for review.*
+*Rev 4 · 2026-09-01 · Draft for review.*
 
-*(Rev 1 targeted iOS-only, personal-use. Rev 2 expanded to open-source app + backend + community labeling + continuous ML training. Rev 3 depersonalizes for public repo and adds the pose-model escalation ladder + motion-signal blur mitigations.)*
+*(Rev 1 targeted iOS-only, personal-use. Rev 2 expanded to open-source app + backend + community labeling + continuous ML training. Rev 3 depersonalized for public repo and added the pose-model escalation ladder + motion-signal blur mitigations. Rev 4 swaps GitHub OAuth for Sign in with Apple, adds iOS Share Sheet for social-media publishing, and adds v2 social features — following relationships + video feed.)*
 
 ## Problem
 
@@ -24,9 +24,11 @@ The app is open source, and doubles as a **community labeling + continuous train
 - Auto-clip + auto-crop + multi-trick split (iOS-only, off-the-shelf MoveNet Thunder)
 - Preview UI, export to Photos
 
-**v2 (community + backend)**:
+**v2 (community + backend + social)**:
 - Video upload + labeling UI (in-app)
-- User accounts, moderation, reputation, abuse blocking
+- User accounts via Sign in with Apple, moderation, reputation, abuse blocking
+- Following relationships + reverse-chronological video feed (in-app social)
+- iOS Share Sheet integration for one-tap publish to Instagram / TikTok / YouTube Shorts / Photos
 - Backend + database + object storage
 - Continuous ML training pipeline (retrain when N new labels land, champion/challenger promote)
 - OTA model updates delivered to installed clients
@@ -125,20 +127,31 @@ The pipeline handles this at multiple layers:
 
 - **Stack**: Bun + TypeScript + Express (or Bun native) + Postgres. Standard modern TypeScript backend.
 - **Object storage**: **Cloudflare R2** (S3-compatible, **$0 egress**, $15/TB storage). Videos and models live here, not on the droplet FS — the droplet doesn't grow with content volume.
-- **Auth**: GitHub OAuth (contributors already have GitHub) + email/password fallback via `express-session`.
+- **Auth**: **Sign in with Apple** — iOS-native, one-tap Face ID / Touch ID, no browser bounce. iOS app hands the identity token to the backend; server verifies the token's signature against Apple's public JWKS (`appleid.apple.com/auth/keys`), checks `aud` matches the app bundle id, and creates or looks up a `users` row keyed by the token's `sub` claim. Session state via signed HTTP-only cookie (`express-session` or Bun's native session helper). Matches App Store guideline 4.8; no email/password fallback keeps the auth surface minimal.
 - **Endpoints (v2 MVP)**:
-  - `POST /api/videos/upload` — presigned R2 URL, returns video ID
-  - `POST /api/videos/:id/labels` — submit label (trick windows + crop rects + trick class if any)
-  - `GET /api/labels/pending` — return N unlabeled clips (for labeling UI)
-  - `POST /api/reports` — user reports abuse/bad label
-  - `GET /api/models/current` — current Core ML manifest (version, URL, checksum)
-  - `POST /api/models` — training pipeline publishes new champion (admin-scoped)
+  - **Auth + upload + labels:**
+    - `POST /api/auth/apple` — exchange Apple identity token → session cookie
+    - `POST /api/videos/upload` — presigned R2 URL, returns video ID
+    - `POST /api/videos/:id/labels` — submit label (trick windows + crop rects + trick class if any)
+    - `GET /api/labels/pending` — return N unlabeled clips (for labeling UI)
+    - `POST /api/reports` — user reports abuse/bad label
+    - `GET /api/models/current` — current Core ML manifest (version, URL, checksum)
+    - `POST /api/models` — training pipeline publishes new champion (admin-scoped)
+  - **Social — following + feed:**
+    - `GET /api/users/:id` — public profile (display name, video count, follower/following counts)
+    - `GET /api/users/:id/videos` — cursor-paginated public videos from one user
+    - `POST /api/follows/:followee_id` — start following (follower = session user)
+    - `DELETE /api/follows/:followee_id` — unfollow
+    - `GET /api/users/:id/followers` — cursor-paginated followers
+    - `GET /api/users/:id/following` — cursor-paginated followees
+    - `GET /api/feed` — reverse-chronological public videos from users the session user follows, cursor-paginated by `(uploaded_at DESC, video_id)`
 - **Database schema (v2, additive-only)**:
-  - `users` — id, github_id, email, reputation, is_blocked, created_at
-  - `videos` — id, user_id, r2_key, duration_ms, uploaded_at, moderation_state
+  - `users` — id, apple_subject (unique), display_name, reputation, is_blocked, created_at
+  - `videos` — id, user_id, r2_key, duration_ms, uploaded_at, moderation_state, visibility (`public` | `private`, default `private`)
   - `labels` — id, video_id, user_id, trick_windows (JSONB), crop_rects (JSONB), quality_score, created_at
   - `reports` — id, target_type, target_id, reporter_id, reason, created_at, resolved_by
   - `models` — id, version, r2_key, val_metrics (JSONB), promoted_at
+  - `follows` — id, follower_id, followee_id, created_at, `UNIQUE (follower_id, followee_id)`. Indexes: `(follower_id, created_at DESC)` for "who I follow" and `(followee_id, created_at DESC)` for "who follows me". No mutual/friend-request semantics — following is public and one-directional.
 - **Migrations**: `dbmate` from day 1. Numbered SQL files, forward-only, additive-first. Never drop a column in the same PR that stops writing to it — two PRs.
 
 ### Labeling UI
@@ -149,6 +162,26 @@ Lives inside the iOS app (v2) — a Labeling tab that:
 3. Submits back to `POST /api/videos/:id/labels`
 
 Web labeling UI is out of scope for MVP — iOS-only keeps the surface small. A web UI can be added as a `turnip-web` repo later if desktop labelers want in.
+
+### Publishing to social media (iOS Share Sheet)
+
+Every exported clip has a "Share" button that opens the native iOS share sheet — `UIActivityViewController` (or SwiftUI's `ShareLink` on iOS 16+). Turnip hands the file URL to the system; iOS enumerates every installed app that accepts a video and the user picks the destination — Instagram, TikTok, YouTube (via Photos → Shorts), Messages, Photos, AirDrop, etc. When Instagram is selected, Instagram's own picker offers Reel / Post / Story.
+
+**Zero server involvement in the share flow.** No OAuth, no per-platform integration, no CDN staging — the video is on the device, the OS moves it to the target app.
+
+**Why not a direct server-side publish flow to Instagram (Instagram Graph API)?**
+
+Meta's content-publishing endpoints only accept **Business or Creator** accounts — personal Instagram accounts cannot be posted to via any official API in 2026 (the Basic Display API that once supported them is deprecated). Even for eligible accounts, the flow requires a Meta App Review approval for the `instagram_content_publish` permission (weeks-long) plus per-user OAuth plumbing. That buys a half-tap UX improvement over the Share Sheet for the subset of users on professional accounts. Not worth the surface. The Share Sheet works for every account type on every target with zero server work.
+
+### Social — following + feed
+
+The follows table + feed endpoints described above form a lightweight social layer on top of the labeled-clip corpus:
+
+- **Follows** is a plain join table. Following is public, one-directional, no friend-request handshake.
+- **`GET /api/feed`** joins `follows` → `videos` where `visibility='public'`, ordered by `(uploaded_at DESC, video_id)` for stable cursor pagination under concurrent uploads.
+- **Video visibility** defaults to `private`; the exporter picks whether each clip goes public before it can appear in a feed. Community labeling is orthogonal — a `public` video is feed-eligible; the "opt in to community dataset" toggle is per-clip and independent of visibility.
+- **Tenant boundary**: every video-read query is scoped to `visibility='public' OR user_id = $session_user`. Followee list is public; the followee cannot enumerate their own followers outside the `/followers` endpoint the system exposes. Blocked users don't appear in feed or profile queries.
+- **No fan-out on write.** No timeline caches. One indexed join + `LIMIT N` handles the feed read. When feed load exceeds what a single query serves, add a fan-out cache — never before.
 
 ### ML pipeline (`turnip-ml`)
 
@@ -277,3 +310,6 @@ Once this document is agreed, the immediate next step is scaffolding `turnip-ios
 - **Serverless API** (Vercel / Cloudflare Workers): cheap for low traffic but harder to run Postgres migrations against, and the Bun + droplet stack is straightforward to operate at MVP scale. Rejected for MVP; reconsider for scale.
 - **Fine-tuning from day 1**: expensive labeling effort + zero validated need until we measure MoveNet Thunder accuracy on real footage. Rejected — start with pretrained, escalate only if empirical testing says otherwise.
 - **Web-only labeling UI**: adds a whole frontend surface. iOS-only labeling keeps v2 tight. Add web when a labeler asks for it.
+- **GitHub OAuth for authentication**: fine mechanics, but Sign in with Apple is one-tap on iOS, matches App Store guideline 4.8, and doesn't require the user to have a GitHub account. Rejected in favor of Sign in with Apple.
+- **Direct server-side Instagram publish** (Instagram Graph API): only works on Business/Creator accounts, requires Meta App Review, adds per-user OAuth plumbing. The iOS Share Sheet delivers the same UX for every account type on every target with zero server work. Rejected.
+- **Timeline / feed fan-out cache from day 1**: unnecessary until feed reads become the bottleneck. A well-indexed join + cursor pagination scales past MVP volumes. Rejected as premature; add if measured feed latency demands it.
