@@ -52,7 +52,7 @@ Polyrepo chosen over monorepo because open-source contributors typically only wa
 
 ### iOS app (`turnip-ios`)
 
-- **Language**: Swift + SwiftUI, min deployment target iOS 14 (broad device coverage; feature-gate iOS 17+ 3D pose if we ever want it).
+- **Language**: Swift + SwiftUI, min deployment target **iOS 16** (~98% device coverage as of 2026, drops the iOS 14/15 back-compat testing surface). iOS 17+ features (like `VNDetectHumanBodyPose3DRequest` for depth-aware 3D pose) feature-gated via `if #available(iOS 17)`.
 - **Pose engine**: MoveNet Thunder (Apache 2.0, ~7 MB TFLite) — pretrained on Google's "Active" dataset (yoga/fitness/dance with high motion + self-occlusion), 84% joint accuracy on the one published gymnastics benchmark.
 - **Runtime**: TensorFlow Lite iOS OR Core ML (via coremltools conversion of the TFLite → Core ML). Core ML is preferable for Neural Engine acceleration on your A15 (iPhone 13 mini).
 - **Pipeline** (per input video, per Rev 1):

@@ -33,8 +33,12 @@ follow the standalone MVP.
 
 ## Requirements
 
-- iOS 14 or later (Apple's Vision framework body-pose API landed in
-  iOS 14; A11 Bionic or later gives Neural Engine acceleration)
+- iOS 16 or later (covers ~98% of active iPhones as of 2026; the
+  Vision framework body-pose API technically landed in iOS 14, but
+  targeting iOS 16 drops the iOS 14/15 back-compat surface with
+  negligible device-coverage cost)
+- A11 Bionic or later gives Neural Engine acceleration
+  (iPhone 8/X and newer — all iOS 16-capable devices qualify)
 - Xcode 15 or later for building from source
 
 ## Contributing
