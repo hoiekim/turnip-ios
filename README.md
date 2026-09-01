@@ -59,9 +59,9 @@ and PR conventions.
 
 ## Sibling repos (planned)
 
-- `hoiekim/turnip-farm` — backend service (video upload, labeling,
+- `turnip-farm` — backend service (video upload, labeling,
   moderation, dataset export)
-- `hoiekim/turnip-ml` — Python training pipeline (fine-tunes the pose
+- `turnip-ml` — Python training pipeline (fine-tunes the pose
   model on the community labeled dataset and publishes new Core ML
   versions)
 

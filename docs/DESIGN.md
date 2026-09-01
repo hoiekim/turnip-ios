@@ -1,12 +1,12 @@
 # Turnip — Tricking Video Auto-Editor + Community Labeling Platform
 
-*Author: claoie · Rev 2 2026-08-31 · Status: draft for Hoie's review*
+*Rev 3 · 2026-09-01 · Draft for review.*
 
-*(Rev 1 targeted iOS-only, personal-use. Rev 2 expands to open-source app + backend + community labeling + continuous ML training per Hoie 2026-08-31.)*
+*(Rev 1 targeted iOS-only, personal-use. Rev 2 expanded to open-source app + backend + community labeling + continuous ML training. Rev 3 depersonalizes for public repo and adds the pose-model escalation ladder + motion-signal blur mitigations.)*
 
 ## Problem
 
-Hoie films his tricking practice on a phone/camera on tripod. A recording session produces one long video with:
+Someone films their tricking practice on a phone or camera on tripod. A recording session produces one long video with:
 
 - **Idle head**: walk from camera to starting spot, wait for turn (5-60s)
 - **The trick**: 1-5s of intense motion (spins, kicks, flips, mid-air rotations)
@@ -16,7 +16,7 @@ Hoie films his tricking practice on a phone/camera on tripod. A recording sessio
 
 Manually clipping and re-cropping every practice video is tedious enough that most clips never get saved. Automating it makes every practice session archivable in one tap.
 
-Because Hoie wants this open-source and contributor-friendly, the app doubles as a **community labeling + continuous training platform**: users can opt in to publish + label their clips, the labeled dataset feeds a continuously-improving pose+action model, and new model versions ship to the app as over-the-air updates.
+The app is open source, and doubles as a **community labeling + continuous training platform**: users can opt in to publish + label their clips, the labeled dataset feeds a continuously-improving pose+action model, and new model versions ship to the app as over-the-air updates.
 
 ## Product scope
 
@@ -40,11 +40,11 @@ Because Hoie wants this open-source and contributor-friendly, the app doubles as
 
 ## Repo structure
 
-Three public repos under `hoiekim`, Apache 2.0:
+Three public repos, Apache 2.0:
 
-- **`hoiekim/turnip-ios`** — Swift/SwiftUI iOS app. Bundles MoveNet Thunder TFLite. Handles capture, on-device clip detection, preview UI, export, and (v2) upload to the backend for the community dataset.
-- **`hoiekim/turnip-api`** — Bun + TypeScript + Postgres backend. Serves video upload, labeling UI (or hosts labeling data for the iOS app to render), user accounts, moderation, quality scoring, and dataset export for the training pipeline. Matches the inbox/budget stack Hoie already runs.
-- **`hoiekim/turnip-ml`** — Python + TensorFlow training pipeline. Fetches labeled dataset from turnip-api, fine-tunes MoveNet Thunder (or the current champion), evaluates on a held-out set, exports to Core ML, uploads to the model CDN endpoint the app polls.
+- **`turnip-ios`** — Swift/SwiftUI iOS app. Bundles MoveNet Thunder TFLite. Handles capture, on-device clip detection, preview UI, export, and (v2) upload to the backend for the community dataset.
+- **`turnip-farm`** — Bun + TypeScript + Postgres backend. Grows the labeled dataset. Serves video upload, labeling UI (or hosts labeling data for the iOS app to render), user accounts, moderation, quality scoring, and dataset export for the training pipeline.
+- **`turnip-ml`** — Python + TensorFlow training pipeline. Fetches labeled dataset from turnip-farm, fine-tunes MoveNet Thunder (or the current champion), evaluates on a held-out set, exports to Core ML, uploads to the model CDN endpoint the app polls.
 
 Polyrepo chosen over monorepo because open-source contributors typically only want to touch one layer — an iOS contributor should not have to clone a 5 GB ML checkpoint tree, and vice versa.
 
@@ -53,23 +53,77 @@ Polyrepo chosen over monorepo because open-source contributors typically only wa
 ### iOS app (`turnip-ios`)
 
 - **Language**: Swift + SwiftUI, min deployment target **iOS 16** (~98% device coverage as of 2026, drops the iOS 14/15 back-compat testing surface). iOS 17+ features (like `VNDetectHumanBodyPose3DRequest` for depth-aware 3D pose) feature-gated via `if #available(iOS 17)`.
-- **Pose engine**: MoveNet Thunder (Apache 2.0, ~7 MB TFLite) — pretrained on Google's "Active" dataset (yoga/fitness/dance with high motion + self-occlusion), 84% joint accuracy on the one published gymnastics benchmark.
-- **Runtime**: TensorFlow Lite iOS OR Core ML (via coremltools conversion of the TFLite → Core ML). Core ML is preferable for Neural Engine acceleration on your A15 (iPhone 13 mini).
-- **Pipeline** (per input video, per Rev 1):
+- **Pose engine**: MoveNet Thunder (Apache 2.0, ~7 MB TFLite) — pretrained on Google's "Active" dataset (yoga/fitness/dance with high motion + self-occlusion), 84% joint accuracy on the ISBS 2024 gymnastics benchmark. See "Model escalation ladder" below for the fallback path if empirical testing shows Thunder underperforms.
+- **Runtime**: TensorFlow Lite iOS OR Core ML (via coremltools conversion of the TFLite → Core ML). Core ML is preferable for Neural Engine acceleration on A11+ devices.
+- **Pipeline** (per input video):
   1. Decode frames at native fps
-  2. Downsample every 3rd frame to 480p
+  2. Downsample every 3rd frame to 480p (10 samples/sec at 30fps input)
   3. Run pose detection, extract hip-midpoint per frame
-  4. Motion signal = frame-to-frame hip displacement, smoothed
+  4. Motion signal = frame-to-frame hip displacement, smoothed (3-sample moving average)
   5. Peak detection with sustained-above-threshold logic → list of trick windows
-  6. Crop rect = union of 17 keypoints across window, expanded 25%, snapped to aspect ratio
+  6. Crop rect = union of 17 keypoints across window (confidence-filtered), expanded 25%, snapped to aspect ratio
   7. Export N clips per input
+
+  See "Interpreting pose output" below for the concrete algorithm turning pose keypoints into `(start_time, end_time)[]` clip ranges and `(min_x, max_x, min_y, max_y)` crop rects.
 - **Preview UI**: thumbnail per detected clip, tap-preview, drag-adjust start/end, keep/discard toggles.
-- **Optional upload** (v2): opt-in per clip. "Send this to the community dataset for labeling" toggle. Uploads to `turnip-api` with the auto-detected labels (window, crop rect) as a first-pass suggestion the community can accept/refine.
+- **Optional upload** (v2): opt-in per clip. "Send this to the community dataset for labeling" toggle. Uploads to `turnip-farm` with the auto-detected labels (window, crop rect) as a first-pass suggestion the community can accept/refine.
 - **OTA model updates**: on launch, poll `GET /api/models/current` for a new Core ML version; download in background, atomic-replace, use next launch.
 
-### Backend (`turnip-api`)
+### Interpreting pose output
 
-- **Stack**: Bun + TypeScript + Express (or Bun native) + Postgres. Same stack as inbox/budget so we reuse patterns.
+Pose detection gives us, per processed frame, 17 keypoints — each `{x, y, confidence}` with x/y normalized 0-1. Turning that into concrete clip ranges and crop rects:
+
+**Step 4 (motion signal):** collapse 17 points per frame into one anchor via **hip midpoint** = average of `left_hip` and `right_hip`. Frame-to-frame displacement is `sqrt((hip_x[t] − hip_x[t−1])² + (hip_y[t] − hip_y[t−1])²)`. Smooth with a 3-sample moving average to kill per-frame confidence jitter.
+
+**Step 5 (peak detection):** given the 1D `motion[t]` time-series, identify sustained peaks:
+- Threshold at ≈ 0.05 normalized units per sample
+- Require ≥ 3 consecutive samples above threshold (≥ 300 ms of sustained motion — filters out one-frame anomalies)
+- Require ≥ 10 samples of quiet between peaks (≥ 1 s — prevents splitting one trick into two)
+- Merge peaks within the minimum gap; expand each window by ±1 s of buffer
+
+Output: list of `(start_time, end_time)` in seconds.
+
+**Step 6 (crop rect):** for each trick window, compute the tightest rect containing the athlete across the whole window:
+- Per-frame bounding box = min/max of confidence-filtered (`> 0.3`) keypoints
+- Union across all frames in the window
+- Expand 25% each side for breathing room + pose undershoot at edges
+- Snap to target aspect ratio (9:16 for Reels default): grow the shorter axis around the box center
+- Clamp to `[0, 1]` if expansion pushes past frame edges; if clamping breaks the target ratio, accept mild letterbox
+- Denormalize by multiplying by source video's pixel dimensions → final `(min_x, max_x, min_y, max_y)`
+
+Static crop (one rect per clip) is Rev 1's choice — simpler, works well when the athlete stays roughly in one area. Dynamic crop (Ken Burns-style, rect changes per frame) is a v2 nice-to-have.
+
+Everything above is ~150 lines of Swift on top of the pose output. The pose model does the heavy lifting; this code just interprets it.
+
+### Model escalation ladder
+
+MoveNet Thunder is the MVP pick because it's the leanest option with independent evidence on acrobatic footage (84% joint accuracy on the ISBS 2024 gymnastics study). If empirical testing on real tricking footage shows it underperforms (< 70% frames with usable pose during aerial phases), escalate in this order:
+
+1. **MediaPipe BlazePose Heavy** (Apache 2.0, ~29 MB, 33 keypoints incl. feet) — MediaPipe iOS SDK, no conversion. Google's benchmarks: 96.4% PCK on yoga, 97.2% on dance. Larger than Thunder but purpose-built for fitness/dance/yoga.
+2. **Fine-tune Thunder on tricking data** — collect 200-500 labeled clips (~4-6 hours of labeling), fine-tune the pretrained weights. The AthletePose3D paper (CVPRW 2025) found sports-specific fine-tuning cuts pose error > 69%. Same 7 MB bundle, better accuracy on the target distribution.
+3. **RTMPose-m** (Apache 2.0, ~27 MB fp16) — best raw accuracy per FLOP (75.8 AP on COCO). No sports pretraining, so pair with fine-tuning if used. Needs a bundled person detector (RTMDet-nano, also Apache).
+4. **ViTPose or PoseC3D** — SOTA family but larger. Reach for these only if the top three fail. PoseC3D fine-tuned on FineGym is 2 M params and 93.5% mean top-1 across 99 gymnastics classes — the natural bridge to v2's automatic trick classification.
+
+**Escalation trigger**: the 2-hour Swift-playground empirical test on 5-10 representative recordings, measuring per-frame pose confidence + keypoint count during the aerial phase of each trick.
+
+### Motion signal robustness on blurry frames
+
+Fast acrobatic motion produces motion-blurred frames (a body spinning at 720°/s smears ~24° across a 33 ms exposure at 30 fps). Pose models degrade gracefully on blur — they still emit `(x, y, confidence)` for each keypoint, but confidence drops and some keypoints may be missing.
+
+The pipeline handles this at multiple layers:
+
+1. **Confidence filtering** — drop keypoints with `confidence < 0.3` before averaging. If both hips fail on frame t, mark that frame as a gap in the motion series.
+2. **Interpolation across single-frame gaps** — if frame t has no hip but frames t-1 and t+1 do, estimate `hip[t] = (hip[t-1] + hip[t+1]) / 2`.
+3. **Fallback anchor keypoint** — if hips fail but shoulders / nose / torso survive (bigger targets, more resistant to blur), use their midpoint instead.
+4. **Optical-flow fallback** — `VNGenerateOpticalFlowRequest` returns per-pixel motion magnitude between two frames with no pose needed. On frames where pose fails entirely, substitute optical-flow magnitude for the motion signal.
+5. **3-sample moving average** — a single-frame dropout is 33 ms at 30 fps; surrounding frames still carry the signal.
+6. **Peak-detection sustained-above-threshold logic** — requires ≥ 300 ms of high motion, so a single-frame anomaly can't create a false peak.
+
+**Recording-side lever (biggest single improvement)**: default to **240 fps slo-mo mode** on the phone. Exposure is ~4 ms instead of 33 ms → **8× less motion blur per frame**. Pose confidence stays > 0.7 through the aerial phase and mitigations 2-4 rarely need to fire. The app processes at native frame rate (30 or 240) and can export at whichever the user picks. Slo-mo is a shooting-technique change users adopt once and forget, not a per-clip decision.
+
+### Backend (`turnip-farm`)
+
+- **Stack**: Bun + TypeScript + Express (or Bun native) + Postgres. Standard modern TypeScript backend.
 - **Object storage**: **Cloudflare R2** (S3-compatible, **$0 egress**, $15/TB storage). Videos and models live here, not on the droplet FS — the droplet doesn't grow with content volume.
 - **Auth**: GitHub OAuth (contributors already have GitHub) + email/password fallback via `express-session`.
 - **Endpoints (v2 MVP)**:
@@ -101,7 +155,7 @@ Web labeling UI is out of scope for MVP — iOS-only keeps the surface small. A 
 - **Language**: Python + TensorFlow + `coremltools` for export.
 - **Trigger**: cron (nightly) or on-demand via GitHub Actions workflow_dispatch. Only runs if `SELECT COUNT(*) FROM labels WHERE created_at > last_train_at` exceeds a threshold (say 50).
 - **Steps**:
-  1. Fetch labeled dataset from turnip-api (`GET /api/labels/export?since=<last>`)
+  1. Fetch labeled dataset from turnip-farm (`GET /api/labels/export?since=<last>`)
   2. Fetch corresponding videos from R2
   3. Split 80/10/10 train/val/holdout (stratified by user_id so no user's clips leak across splits)
   4. Fine-tune MoveNet Thunder or the current champion
@@ -122,9 +176,9 @@ Web labeling UI is out of scope for MVP — iOS-only keeps the surface small. A 
 ## Deployment (DigitalOcean cheapest viable)
 
 **MVP stack**:
-- **1× Basic Droplet** — $6/mo (1 GB RAM, 25 GB SSD, 1 TB transfer). Runs turnip-api (Bun), Postgres, and the ML pipeline (nightly). Nginx/Caddy fronts everything.
+- **1× Basic Droplet** — $6/mo (1 GB RAM, 25 GB SSD, 1 TB transfer). Runs turnip-farm (Bun), Postgres, and the ML pipeline (nightly). Nginx/Caddy fronts everything.
 - **Cloudflare R2 bucket** — videos + trained model artifacts. First 10 GB free, then $0.015/GB/mo storage, **$0 egress**. Two zeros: no bandwidth bill for video downloads, no bandwidth bill for the app fetching the model.
-- **Domain**: `turnip.app` or similar, ~$15/yr on Namecheap/Porkbun.
+- **Domain**: ~$15/yr on Namecheap/Porkbun.
 - **Managed Postgres** ($15/mo) OR **self-hosted Postgres on the droplet** ($0). Start self-hosted; migrate to managed when you cross 1 GB of DB or 10 QPS sustained.
 - **Object storage costs** — 100 videos × 100 MB = 10 GB → free tier. 1000 videos = $1.50/mo. 10 000 videos = $15/mo.
 - **Cloudflare in front** — free tier — for the app-facing DNS + basic DDoS + edge caching of static assets.
@@ -146,7 +200,7 @@ Web labeling UI is out of scope for MVP — iOS-only keeps the surface small. A 
 
 ## Continuous migration strategy
 
-- **Tool**: `dbmate` (Go binary, zero-dependency, works well with Postgres). Migration files live in `turnip-api/db/migrations/NNNN_description.sql` (up + down).
+- **Tool**: `dbmate` (Go binary, zero-dependency, works well with Postgres). Migration files live in `turnip-farm/db/migrations/NNNN_description.sql` (up + down).
 - **Rules**:
   1. Migrations are forward-only in production (no `down` in prod).
   2. Always additive first — new column, new table. Never drop or rename in the same PR that stops writing to the old field.
@@ -165,13 +219,13 @@ Every repo ships (at repo root, standard OSS conventions):
   - `ISSUE_TEMPLATE/bug.md`, `ISSUE_TEMPLATE/feature.md`
   - `PULL_REQUEST_TEMPLATE.md`
   - `workflows/ci.yml` (lint + test on every PR)
-  - `workflows/cd.yml` (deploy on push to main — turnip-api only)
+  - `workflows/cd.yml` (deploy on push to main — turnip-farm only)
 - **`SECURITY.md`** — how to responsibly disclose vulnerabilities
 - **`CLA.md`** *(optional, decide upfront)* — do we require contributors to sign a CLA? Apache 2.0's Individual Contributor License Agreement is standard but adds friction; most permissive-license OSS projects skip it.
 
 **Recommendation**: skip the CLA. Apache 2.0's Section 5 already grants the project the necessary license from contributions. CLAs are more common in projects that plan to relicense later or that need corporate contributor rights.
 
-## Cost analysis (updated)
+## Cost analysis
 
 ### One-time
 - Apple Developer Program: $99 (required to publish to App Store; not required for TestFlight or self-install)
@@ -191,14 +245,14 @@ Every repo ships (at repo root, standard OSS conventions):
 
 R2's $0 egress is what keeps this cheap even as video volume grows. AWS S3 would triple the bill at 1000 users due to egress fees.
 
-## Contribution ramp for friends
+## Contribution ramp
 
 - **Good first issues** tagged in each repo — small, well-scoped
 - **Areas of contribution** documented in each README:
   - iOS: Swift/SwiftUI, AVFoundation, Vision framework, TFLite iOS
-  - API: TypeScript, Bun, Postgres, Docker
+  - Backend: TypeScript, Bun, Postgres, Docker
   - ML: Python, TensorFlow, coremltools, model evaluation
-- **PR review flow**: reviewer + Hoie approval; use a small `.github/CODEOWNERS` to auto-request the right reviewer per subdirectory
+- **PR review flow**: reviewer approval; use a small `.github/CODEOWNERS` to auto-request the right reviewer per subdirectory
 - **CI on PRs**: lint + unit tests. Nothing gates review, but red CI slows merges.
 
 ## Open questions
@@ -207,25 +261,19 @@ R2's $0 egress is what keeps this cheap even as video volume grows. AWS S3 would
 2. **Trick classification in v2** — do we tag "cork/540/backflip/etc." from day 1? Enables leaderboards, per-trick filtering. Uses PoseC3D-FineGym as the starting classifier.
 3. **User-facing labeling incentive** — reputation + badges + "your labels improved the model" notifications? Community-app incentive design matters.
 4. **Storage retention** — do we keep every uploaded video forever, or auto-purge after N days if the labeling round is done + label is committed? Storage-cost implications.
-5. **Community moderation vs Hoie-only moderation for v1** — is Hoie the sole admin, or do we grant N trusted users mod rights? Sole-admin is safest early; hard to keep up as user base grows.
+5. **Community moderation vs single-admin moderation for v1** — sole maintainer, or grant N trusted users mod rights? Sole-admin is safest early; hard to keep up as user base grows.
 6. **CLA** — recommendation is skip; confirm.
 7. **Analytics** — any telemetry (privacy-respecting, opt-in) for feature usage / crash reports? PostHog self-hosted is a common OSS choice.
 
-## What Hoie needs to decide now
+## Empirical test — the first work item
 
-1. **Apache 2.0** for all three repos? ✅ recommended.
-2. **Repo names**: `turnip-ios`, `turnip-api`, `turnip-ml`?
-3. **CLA yes/no**? Recommended: no.
-4. **Skip CI setup for the OS-app first push, or do it upfront**? Recommend upfront; adding CI later requires backfill.
-5. **Sole-admin moderation for v1 (you)**, or invite N trusted mods from day 1?
-
-Once decided, the immediate next step is scaffolding `turnip-ios` with SwiftUI + AVFoundation + TFLite MoveNet Thunder integration, plus a small Swift file that runs pose detection on a video from your Photos library. That's the empirical test we agreed on before writing anything larger.
+Once this document is agreed, the immediate next step is scaffolding `turnip-ios` with SwiftUI + AVFoundation + TFLite MoveNet Thunder integration, plus a small Swift file that runs pose detection on a sample video from Photos and logs per-frame confidence + keypoint count. That result — pose accuracy during the aerial phase of real tricking clips — is the definitive answer to whether MoveNet Thunder is enough or the escalation ladder needs to fire early.
 
 ## Alternatives considered and rejected
 
-- **Monorepo**: raises contribution barrier for OSS friends. Rejected.
+- **Monorepo**: raises contribution barrier for OSS contributors. Rejected.
 - **AWS S3 for video storage**: $0.09/GB egress kills the economics. Rejected in favor of R2.
-- **MIT license**: fine but Apache 2.0's patent grant is worth having for an ML project. Downgrade to MIT if Hoie strongly prefers minimalism.
-- **Serverless API** (Vercel / Cloudflare Workers): cheap for low traffic but harder to run Postgres migrations against, and the Bun/TS + droplet stack matches inbox/budget so we reuse patterns. Rejected for MVP; reconsider for scale.
-- **Fine-tuning from day 1**: expensive labeling effort + zero validated need until we measure Vision/MoveNet Thunder accuracy on real footage. Rejected — start with pretrained, escalate only if needed.
+- **MIT license**: fine but Apache 2.0's patent grant is worth having for an ML project.
+- **Serverless API** (Vercel / Cloudflare Workers): cheap for low traffic but harder to run Postgres migrations against, and the Bun + droplet stack is straightforward to operate at MVP scale. Rejected for MVP; reconsider for scale.
+- **Fine-tuning from day 1**: expensive labeling effort + zero validated need until we measure MoveNet Thunder accuracy on real footage. Rejected — start with pretrained, escalate only if empirical testing says otherwise.
 - **Web-only labeling UI**: adds a whole frontend surface. iOS-only labeling keeps v2 tight. Add web when a labeler asks for it.
