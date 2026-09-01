@@ -26,7 +26,7 @@ All on-device. No server, no data upload for the core auto-edit path.
 ## Status
 
 Very early. This repo has the initial license, README, and design
-document as of 2026-08-31; app code lands next. See
+document as of 2026-09-01; app code lands next. See
 [`docs/DESIGN.md`](docs/DESIGN.md) for the full architecture plan
 including the community labeling + continuous ML training that will
 follow the standalone MVP.

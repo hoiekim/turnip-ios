@@ -1,8 +1,8 @@
 # Turnip — Tricking Video Auto-Editor + Community Labeling Platform
 
-*Rev 4 · 2026-09-01 · Draft for review.*
+*Rev 5 · 2026-09-01 · Draft for review.*
 
-*(Rev 1 targeted iOS-only, personal-use. Rev 2 expanded to open-source app + backend + community labeling + continuous ML training. Rev 3 depersonalized for public repo and added the pose-model escalation ladder + motion-signal blur mitigations. Rev 4 swaps GitHub OAuth for Sign in with Apple, adds iOS Share Sheet for social-media publishing, and adds v2 social features — following relationships + video feed.)*
+*(Rev 1 targeted iOS-only, personal-use. Rev 2 expanded to open-source app + backend + community labeling + continuous ML training. Rev 3 depersonalized for public repo and added the pose-model escalation ladder + motion-signal blur mitigations. Rev 4 swapped GitHub OAuth for Sign in with Apple, added iOS Share Sheet for social-media publishing, and added v2 social features — following relationships + video feed. Rev 5 tightens the Sign in with Apple validation contract (`iss` + `exp` on top of `aud` + signature), adds the videos-side feed indexes, adds a self-follow guard, and pins MoveNet Thunder's quantization variant.)*
 
 ## Problem
 
@@ -55,7 +55,7 @@ Polyrepo chosen over monorepo because open-source contributors typically only wa
 ### iOS app (`turnip-ios`)
 
 - **Language**: Swift + SwiftUI, min deployment target **iOS 16** (~98% device coverage as of 2026, drops the iOS 14/15 back-compat testing surface). iOS 17+ features (like `VNDetectHumanBodyPose3DRequest` for depth-aware 3D pose) feature-gated via `if #available(iOS 17)`.
-- **Pose engine**: MoveNet Thunder (Apache 2.0, ~7 MB TFLite) — pretrained on Google's "Active" dataset (yoga/fitness/dance with high motion + self-occlusion), 84% joint accuracy on the ISBS 2024 gymnastics benchmark. See "Model escalation ladder" below for the fallback path if empirical testing shows Thunder underperforms.
+- **Pose engine**: MoveNet Thunder (Apache 2.0, ~7 MB TFLite int8 · ~12 MB fp16 · ~24 MB fp32) — pretrained on Google's "Active" dataset (yoga/fitness/dance with high motion + self-occlusion), 84% joint accuracy on the ISBS 2024 gymnastics benchmark. int8 is the default bundle; fp16 is the escalation if accuracy on real footage demands it before the model swap. See "Model escalation ladder" below for the fallback path if empirical testing shows Thunder underperforms.
 - **Runtime**: TensorFlow Lite iOS OR Core ML (via coremltools conversion of the TFLite → Core ML). Core ML is preferable for Neural Engine acceleration on A11+ devices.
 - **Pipeline** (per input video):
   1. Decode frames at native fps
@@ -127,7 +127,7 @@ The pipeline handles this at multiple layers:
 
 - **Stack**: Bun + TypeScript + Express (or Bun native) + Postgres. Standard modern TypeScript backend.
 - **Object storage**: **Cloudflare R2** (S3-compatible, **$0 egress**, $15/TB storage). Videos and models live here, not on the droplet FS — the droplet doesn't grow with content volume.
-- **Auth**: **Sign in with Apple** — iOS-native, one-tap Face ID / Touch ID, no browser bounce. iOS app hands the identity token to the backend; server verifies the token's signature against Apple's public JWKS (`appleid.apple.com/auth/keys`), checks `aud` matches the app bundle id, and creates or looks up a `users` row keyed by the token's `sub` claim. Session state via signed HTTP-only cookie (`express-session` or Bun's native session helper). Matches App Store guideline 4.8; no email/password fallback keeps the auth surface minimal.
+- **Auth**: **Sign in with Apple** — iOS-native, one-tap Face ID / Touch ID, no browser bounce. iOS app hands the identity token to the backend; server verifies the token per Apple's server-side validation guidance — signature against Apple's public JWKS (`appleid.apple.com/auth/keys`) with the correct `kid`; `iss == "https://appleid.apple.com"`; `aud` matches the app bundle id; `exp > now` (reject expired / replayed tokens); and only then creates or looks up a `users` row keyed by the token's `sub` claim. Session state via signed HTTP-only cookie (`express-session` or Bun's native session helper). Matches App Store guideline 4.8; no email/password fallback keeps the auth surface minimal.
 - **Endpoints (v2 MVP)**:
   - **Auth + upload + labels:**
     - `POST /api/auth/apple` — exchange Apple identity token → session cookie
@@ -140,18 +140,18 @@ The pipeline handles this at multiple layers:
   - **Social — following + feed:**
     - `GET /api/users/:id` — public profile (display name, video count, follower/following counts)
     - `GET /api/users/:id/videos` — cursor-paginated public videos from one user
-    - `POST /api/follows/:followee_id` — start following (follower = session user)
+    - `POST /api/follows/:followee_id` — start following (follower = session user; 400 if `followee_id == session user`, enforced by the table `CHECK` too)
     - `DELETE /api/follows/:followee_id` — unfollow
     - `GET /api/users/:id/followers` — cursor-paginated followers
     - `GET /api/users/:id/following` — cursor-paginated followees
     - `GET /api/feed` — reverse-chronological public videos from users the session user follows, cursor-paginated by `(uploaded_at DESC, video_id)`
 - **Database schema (v2, additive-only)**:
   - `users` — id, apple_subject (unique), display_name, reputation, is_blocked, created_at
-  - `videos` — id, user_id, r2_key, duration_ms, uploaded_at, moderation_state, visibility (`public` | `private`, default `private`)
+  - `videos` — id, user_id, r2_key, duration_ms, uploaded_at, moderation_state, visibility (`public` | `private`, default `private`). Indexes: `(user_id, uploaded_at DESC)` for `GET /api/users/:id/videos`, and `(visibility, uploaded_at DESC, id)` — a partial index on `WHERE visibility='public'` — for the feed's index-only scan side of `follows → videos`.
   - `labels` — id, video_id, user_id, trick_windows (JSONB), crop_rects (JSONB), quality_score, created_at
   - `reports` — id, target_type, target_id, reporter_id, reason, created_at, resolved_by
   - `models` — id, version, r2_key, val_metrics (JSONB), promoted_at
-  - `follows` — id, follower_id, followee_id, created_at, `UNIQUE (follower_id, followee_id)`. Indexes: `(follower_id, created_at DESC)` for "who I follow" and `(followee_id, created_at DESC)` for "who follows me". No mutual/friend-request semantics — following is public and one-directional.
+  - `follows` — id, follower_id, followee_id, created_at, `UNIQUE (follower_id, followee_id)`, `CHECK (follower_id <> followee_id)` (a user can't follow themselves — the DB refuses it and the endpoint returns 400 rather than silently succeeding). Indexes: `(follower_id, created_at DESC)` for "who I follow" and `(followee_id, created_at DESC)` for "who follows me". No mutual/friend-request semantics — following is public and one-directional.
 - **Migrations**: `dbmate` from day 1. Numbered SQL files, forward-only, additive-first. Never drop a column in the same PR that stops writing to it — two PRs.
 
 ### Labeling UI
