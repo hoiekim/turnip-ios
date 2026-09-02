@@ -50,8 +50,8 @@ names the areas most open to new contributors. Standard flow:
 2. Branch from `main`
 3. Open a PR against `hoiekim/turnip-ios`
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) (coming soon) for coding style
-and PR conventions.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for dev setup, coding style, and
+PR conventions.
 
 ## License
 
