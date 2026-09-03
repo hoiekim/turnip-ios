@@ -15,8 +15,28 @@ export HOMEBREW_NO_INSTALL_CLEANUP=1
 
 cd "$CI_PRIMARY_REPOSITORY_PATH"
 
-command -v xcodegen >/dev/null || brew install xcodegen
-command -v pod >/dev/null || brew install cocoapods
+step() {
+  local label="$1"; shift
+  local start=$SECONDS
+  "$@"
+  echo "[ci_post_clone] $label took $((SECONDS - start))s"
+}
 
-xcodegen generate
-pod install
+# CocoaPods' spec index (~/.cocoapods) and downloaded pod source archives
+# (~/Library/Caches/CocoaPods) live outside the repo, so a fresh Xcode Cloud
+# VM has neither and `pod install` re-downloads TensorFlowLiteSwift's
+# xcframework every build. Xcode Cloud restores $CI_DERIVED_DATA_PATH before
+# this script runs and saves it again after ci_post_xcodebuild.sh — round
+# both caches through there to persist them across builds on this workflow.
+restore_pod_caches() {
+  local cache="$CI_DERIVED_DATA_PATH/pod-cache"
+  [ -d "$cache/dot-cocoapods" ] && rsync -a "$cache/dot-cocoapods/" ~/.cocoapods/
+  [ -d "$cache/caches-cocoapods" ] && rsync -a "$cache/caches-cocoapods/" ~/Library/Caches/CocoaPods/
+  return 0
+}
+
+step "restore pod caches" restore_pod_caches
+step "brew install xcodegen" bash -c 'command -v xcodegen >/dev/null || brew install xcodegen'
+step "brew install cocoapods" bash -c 'command -v pod >/dev/null || brew install cocoapods'
+step "xcodegen generate" xcodegen generate
+step "pod install" pod install
