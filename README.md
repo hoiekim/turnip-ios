@@ -25,11 +25,14 @@ All on-device. No server, no data upload for the core auto-edit path.
 
 ## Status
 
-Very early. This repo has the initial license, README, and design
-document as of 2026-09-01; app code lands next. See
-[`docs/DESIGN.md`](docs/DESIGN.md) for the full architecture plan
-including the community labeling + continuous ML training that will
-follow the standalone MVP.
+Very early. As of 2026-09-02 the repo has initial app scaffolding: a
+SwiftUI shell and a pose-detection diagnostic screen (pick a video from
+Photos, run MoveNet Thunder on it, log per-frame confidence + keypoint
+count) — this is the design doc's "empirical test" first work item, not
+the auto-edit pipeline itself. See [`docs/DESIGN.md`](docs/DESIGN.md) for
+the full architecture plan including the community labeling + continuous
+ML training that will follow the standalone MVP, and
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for dev setup.
 
 ## Requirements
 

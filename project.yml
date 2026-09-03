@@ -1,0 +1,59 @@
+name: Turnip
+
+options:
+  bundleIdPrefix: com.hoiekim
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+
+targets:
+  Turnip:
+    type: application
+    platform: iOS
+    sources:
+      - path: Turnip
+        excludes:
+          - Models/*.tflite
+      - path: Turnip/Models
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hoiekim.turnip
+        PRODUCT_NAME: Turnip
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_FILE: Turnip/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+    dependencies: []
+
+  TurnipTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: TurnipTests
+    dependencies:
+      - target: Turnip
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hoiekim.turnip.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Turnip:
+    build:
+      targets:
+        Turnip: all
+        TurnipTests: [test]
+    test:
+      targets:
+        - TurnipTests
+    run:
+      config: Debug

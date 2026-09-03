@@ -60,3 +60,21 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Turnip project scaffolding
+#
+# project.yml is the source of truth for the Xcode project (XcodeGen); the
+# generated .xcodeproj/.xcworkspace are not committed. Podfile.lock IS
+# committed for reproducible CocoaPods resolution, but Pods/ itself is not —
+# TensorFlowLiteSwift vendors a large prebuilt xcframework. See CONTRIBUTING.md.
+*.xcodeproj/
+*.xcworkspace/
+Pods/
+
+# MoveNet Thunder model binary — see Turnip/Models/README.md
+Turnip/Models/*.tflite
+
+DerivedData/
+*.xcuserstate
+
+.DS_Store

@@ -7,14 +7,39 @@ that names areas most open to new contributors.
 
 ## Development environment
 
-- **Xcode 15 or later**
+- **Xcode 15 or later** (developed against 26.3; 15+ is the floor)
 - **iOS 16** minimum deployment target
 - An A11 Bionic device or later (iPhone 8/X+) if you want to test Neural
   Engine acceleration; the simulator works for everything else
 
-Clone the repo and open it in Xcode. There's no dependency manager step yet
-beyond what Xcode resolves automatically — this will be documented here as
-soon as the app scaffolding lands.
+The project uses [XcodeGen](https://github.com/yonaskolb/XcodeGen) to
+generate the `.xcodeproj` from `project.yml` (kept as plain, diffable YAML
+instead of a merge-conflict-prone `.pbxproj`) and
+[CocoaPods](https://cocoapods.org) for `TensorFlowLiteSwift`, which has no
+official Swift Package Manager distribution. Setup, in order:
+
+1. **Accept the Xcode license** if you haven't already — `sudo xcodebuild -license`.
+   This is interactive and requires sudo, so it can't be scripted; do it once, manually,
+   before anything else in this list will work.
+2. Install [Homebrew](https://brew.sh) if you don't have it.
+3. `brew install xcodegen cocoapods`
+4. `xcodegen generate`
+5. `pod install` — if this fails with `Unicode Normalization not appropriate for ASCII-8BIT`,
+   your shell has no UTF-8 locale set; run `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 pod install` instead
+   (known CocoaPods/Ruby issue, unrelated to this project)
+6. Download the MoveNet Thunder model per
+   [`Turnip/Models/README.md`](Turnip/Models/README.md) — the app builds and runs
+   without it, but the pose diagnostic screen needs it to do anything.
+7. **Open `Turnip.xcworkspace`, not `Turnip.xcodeproj`.** CocoaPods requires the
+   workspace; opening the bare project will fail to resolve `TensorFlowLiteSwift`.
+
+`.xcodeproj`, `.xcworkspace`, and `Pods/` are generated, not committed — if you change
+`project.yml` or the `Podfile`, rerun `xcodegen generate` / `pod install` respectively.
+
+(An unofficial SPM wrapper for `TensorFlowLiteSwift` exists but repackages a third-party
+prebuilt xcframework with no official support — worse provenance for a dependency running
+an ML model in a public repo than Google's own CocoaPods podspec. We're sticking with
+CocoaPods.)
 
 ## Branching workflow
 
@@ -41,17 +66,20 @@ soon as the app scaffolding lands.
 
 ## Testing guidance
 
-The app codebase hasn't landed yet, so there's no test suite to run
-against. Once it does:
-
 - New logic (clip detection, crop-rect math, pose-signal processing) should
   ship with unit tests (XCTest)
 - UI changes should include a description of manual testing performed
   (device/simulator, iOS version) in the PR's test plan, since UI tests are
   not expected to cover everything
 
-This section will be expanded with concrete commands once the project
-scaffolding exists.
+Run the test suite with:
+
+```
+xcodebuild test -workspace Turnip.xcworkspace -scheme Turnip \
+  -destination 'platform=iOS Simulator,name=iPhone 15'
+```
+
+or Cmd+U in Xcode with the `Turnip` scheme selected.
 
 ## Areas of contribution
 
