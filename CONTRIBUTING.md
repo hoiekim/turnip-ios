@@ -22,11 +22,15 @@ official Swift Package Manager distribution. Setup, in order:
    This is interactive and requires sudo, so it can't be scripted; do it once, manually,
    before anything else in this list will work.
 2. Install [Homebrew](https://brew.sh) if you don't have it.
-3. `brew install xcodegen cocoapods`
+3. `brew install xcodegen`
 4. `xcodegen generate`
-5. `pod install` — if this fails with `Unicode Normalization not appropriate for ASCII-8BIT`,
-   your shell has no UTF-8 locale set; run `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 pod install` instead
-   (known CocoaPods/Ruby issue, unrelated to this project)
+5. `bundle install && bundle exec pod install` — CocoaPods is pinned via the committed
+   `Gemfile`/`Gemfile.lock` (both CI pipelines resolve pods the same way) rather than
+   whatever `brew install cocoapods` happens to be current; a bare `pod install` uses
+   your system CocoaPods and can rewrite `Podfile.lock` to a different version. If
+   `bundle install` fails with `Unicode Normalization not appropriate for ASCII-8BIT`,
+   your shell has no UTF-8 locale set; run `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 bundle install`
+   instead (known CocoaPods/Ruby issue, unrelated to this project)
 6. Download the MoveNet Thunder model per
    [`Turnip/Models/README.md`](Turnip/Models/README.md) — the app builds and runs
    without it, but the pose diagnostic screen needs it to do anything.
@@ -60,8 +64,8 @@ CocoaPods.)
 ## Review process
 
 - At least one reviewer approval is required before merge
-- CI (once added) must pass before merge; until then, describe how you
-  tested your change in the PR's test plan
+- CI must pass before merge — describe how you tested your change in the
+  PR's test plan regardless, since CI doesn't cover UI/manual testing
 - Be responsive to review feedback — if a thread goes quiet, a ping is fine
 
 ## Testing guidance

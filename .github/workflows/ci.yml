@@ -8,19 +8,43 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Only cancel superseded PR pushes — cancelling a push-to-main run can
+  # leave a merged commit with a cancelled rather than green check.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-and-test:
     runs-on: macos-26
+    env:
+      BUNDLE_PATH: vendor/bundle
 
     steps:
       - uses: actions/checkout@v4
 
-      # Matches the Xcode version CONTRIBUTING.md documents as the dev baseline.
-      # XcodeGen's emitted project format tracks its own release, not the
-      # selected Xcode, so this must stay new enough to open it — see
-      # https://github.com/yonaskolb/XcodeGen/issues/1578.
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            Pods
+            ~/Library/Caches/CocoaPods
+          key: pods-${{ runner.os }}-${{ hashFiles('Podfile.lock') }}
+          restore-keys: |
+            pods-${{ runner.os }}-
+
+      - name: Cache Bundler gems
+        uses: actions/cache@v4
+        with:
+          path: vendor/bundle
+          key: gems-${{ runner.os }}-${{ hashFiles('Gemfile.lock') }}
+          restore-keys: |
+            gems-${{ runner.os }}-
+
+      # Matches the Xcode version CONTRIBUTING.md documents as the dev
+      # baseline. XcodeGen's emitted project format tracks its own release,
+      # not the selected Xcode, so this must stay new enough to open it —
+      # see https://github.com/yonaskolb/XcodeGen/issues/1578. This only
+      # exercises 26.3; CONTRIBUTING.md's "15+ is the floor" claim isn't
+      # covered by CI and should be read as aspirational, not verified.
       - name: Select Xcode 26.3
         run: sudo xcode-select -s /Applications/Xcode_26.3.app
 
