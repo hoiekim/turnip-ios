@@ -12,13 +12,17 @@ concurrency:
 
 jobs:
   build-and-test:
-    runs-on: macos-14
+    runs-on: macos-26
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode 15.4
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+      # Matches the Xcode version CONTRIBUTING.md documents as the dev baseline.
+      # XcodeGen's emitted project format tracks its own release, not the
+      # selected Xcode, so this must stay new enough to open it — see
+      # https://github.com/yonaskolb/XcodeGen/issues/1578.
+      - name: Select Xcode 26.3
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app
 
       - name: Install XcodeGen and CocoaPods
         run: brew install xcodegen cocoapods
@@ -34,11 +38,11 @@ jobs:
           xcodebuild build \
             -workspace Turnip.xcworkspace \
             -scheme Turnip \
-            -destination "platform=iOS Simulator,name=iPhone 15,OS=17.5"
+            -destination "platform=iOS Simulator,name=iPhone 17"
 
       - name: Test
         run: |
           xcodebuild test \
             -workspace Turnip.xcworkspace \
             -scheme Turnip \
-            -destination "platform=iOS Simulator,name=iPhone 15,OS=17.5"
+            -destination "platform=iOS Simulator,name=iPhone 17"
