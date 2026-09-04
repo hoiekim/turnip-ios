@@ -24,14 +24,25 @@ jobs:
       - name: Select Xcode 26.3
         run: sudo xcode-select -s /Applications/Xcode_26.3.app
 
-      - name: Install XcodeGen and CocoaPods
-        run: brew install xcodegen cocoapods
+      # Homebrew only bottles the latest formula version, and its default
+      # `pod` (via `brew install cocoapods`) drifts independently of
+      # Xcode Cloud's ci_post_clone.sh. Pin both tools explicitly and
+      # identically in both places instead.
+      - name: Install XcodeGen 2.46.0
+        run: |
+          curl -sL -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
+          unzip -q xcodegen.zip -d xcodegen-pkg
+          sudo ./xcodegen-pkg/xcodegen/install.sh
+          rm -rf xcodegen.zip xcodegen-pkg
 
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Install CocoaPods 1.17.0 (via Gemfile)
+        run: bundle install
+
       - name: Resolve CocoaPods dependencies
-        run: pod install
+        run: bundle exec pod install
 
       - name: Build
         run: |
