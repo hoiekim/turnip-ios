@@ -61,6 +61,10 @@ fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
 
+# Bundler (CocoaPods pin) — CI caches this under BUNDLE_PATH; not needed locally
+# unless you mirror that with `bundle config set --local path vendor/bundle`.
+vendor/bundle
+
 # Turnip project scaffolding
 #
 # project.yml is the source of truth for the Xcode project (XcodeGen); the

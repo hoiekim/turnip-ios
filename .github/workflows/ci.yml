@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Only cancel superseded PR pushes — cancelling a push-to-main run can
+  # leave a merged commit with a cancelled rather than green check.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-and-test:
+    runs-on: macos-26
+    env:
+      BUNDLE_PATH: vendor/bundle
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            Pods
+            ~/Library/Caches/CocoaPods
+          key: pods-${{ runner.os }}-${{ hashFiles('Podfile.lock') }}
+          restore-keys: |
+            pods-${{ runner.os }}-
+
+      - name: Cache Bundler gems
+        uses: actions/cache@v4
+        with:
+          path: vendor/bundle
+          key: gems-${{ runner.os }}-${{ hashFiles('Gemfile.lock') }}
+          restore-keys: |
+            gems-${{ runner.os }}-
+
+      # Matches the Xcode version CONTRIBUTING.md documents as the dev
+      # baseline. XcodeGen's emitted project format tracks its own release,
+      # not the selected Xcode, so this must stay new enough to open it —
+      # see https://github.com/yonaskolb/XcodeGen/issues/1578. This only
+      # exercises 26.3; CONTRIBUTING.md's "15+ is the floor" claim isn't
+      # covered by CI and should be read as aspirational, not verified.
+      - name: Select Xcode 26.3
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+
+      # Homebrew only bottles the latest formula version, and its default
+      # `pod` (via `brew install cocoapods`) drifts independently of
+      # Xcode Cloud's ci_post_clone.sh. Pin both tools explicitly and
+      # identically in both places instead.
+      - name: Install XcodeGen 2.46.0
+        run: |
+          curl -sL -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
+          unzip -q xcodegen.zip -d xcodegen-pkg
+          sudo ./xcodegen-pkg/xcodegen/install.sh
+          rm -rf xcodegen.zip xcodegen-pkg
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Install CocoaPods 1.17.0 (via Gemfile)
+        run: bundle install
+
+      - name: Resolve CocoaPods dependencies
+        run: bundle exec pod install
+
+      - name: Build
+        run: |
+          xcodebuild build \
+            -workspace Turnip.xcworkspace \
+            -scheme Turnip \
+            -destination "platform=iOS Simulator,name=iPhone 17"
+
+      - name: Test
+        run: |
+          xcodebuild test \
+            -workspace Turnip.xcworkspace \
+            -scheme Turnip \
+            -destination "platform=iOS Simulator,name=iPhone 17"
