@@ -42,7 +42,27 @@ install_xcodegen() {
   export PATH="$prefix/bin:$PATH"
 }
 
+# Xcode Cloud's image only ships macOS's system Ruby 2.6 (/usr/bin/bundle),
+# which Apple has deprecated and which can't run Gemfile.lock: the lockfile
+# was resolved on a modern Ruby, so its BUNDLED WITH Bundler 4.x and gems
+# like activesupport 7.2 need Ruby >= 3.2. System `bundle` fails with
+# "Could not find 'bundler' (4.0.16) required by your Gemfile.lock".
+# Install Homebrew's Ruby and put it ahead of /usr/bin on PATH. GitHub
+# Actions' runner image already ships a modern Ruby, so ci.yml needs no
+# equivalent step.
+install_ruby() {
+  brew install ruby
+  export PATH="$(brew --prefix ruby)/bin:$PATH"
+  # RubyGems auto-installs the locked Bundler on modern Rubies, but do it
+  # explicitly so a mismatch fails here, loudly, rather than mid-`bundle`.
+  local bundler_version
+  bundler_version=$(awk '/^BUNDLED WITH/ { getline; print $1 }' Gemfile.lock)
+  gem install --no-document bundler -v "$bundler_version"
+  echo "[ci_post_clone] using $(ruby --version), bundler $(bundle --version)"
+}
+
 step "install xcodegen 2.46.0" install_xcodegen
 step "xcodegen generate" xcodegen generate
+step "install ruby (homebrew)" install_ruby
 step "bundle install (cocoapods 1.17.0)" bundle install
 step "pod install" bundle exec pod install
