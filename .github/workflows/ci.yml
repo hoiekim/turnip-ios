@@ -51,13 +51,17 @@ jobs:
       # Homebrew only bottles the latest formula version, and its default
       # `pod` (via `brew install cocoapods`) drifts independently of
       # Xcode Cloud's ci_post_clone.sh. Pin both tools explicitly and
-      # identically in both places instead.
+      # identically in both places instead. Installed to a user-writable
+      # prefix (no sudo) so this step matches ci_post_clone.sh exactly —
+      # Xcode Cloud's build environment has no passwordless sudo.
       - name: Install XcodeGen 2.46.0
         run: |
           curl -sL -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
           unzip -q xcodegen.zip -d xcodegen-pkg
-          sudo ./xcodegen-pkg/xcodegen/install.sh
+          mkdir -p "$HOME/.local"
+          ./xcodegen-pkg/xcodegen/install.sh "$HOME/.local"
           rm -rf xcodegen.zip xcodegen-pkg
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Generate Xcode project
         run: xcodegen generate
