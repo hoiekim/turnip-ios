@@ -26,12 +26,12 @@ before that issue gets split.
 
 ```mermaid
 flowchart TD
-    A[Home] -->|pick video| B[Processing]
+    A[Home / Video Gallery] -->|tap a video tile| B[Processing]
     B -->|clips found| C[Clip List]
     B -->|no tricks detected| E1[Empty state]
     B -->|pipeline error| E2[Error state]
-    E1 -->|pick another video| A
-    E2 -->|retry / pick another| A
+    E1 -->|back to Home| A
+    E2 -->|retry / back to Home| A
     C -->|tap a clip| D[Clip Detail / Editor]
     D -->|save changes| C
     D -->|discard| C
@@ -39,14 +39,30 @@ flowchart TD
     F -->|done| A
 ```
 
-### 1. Home
+### 1. Home / Video Gallery
 
-- Entry point. A single primary action: pick a video (system `PhotosPicker`,
-  same mechanism the pose-diagnostic screen already uses — see
-  `Turnip/PoseDiagnostic/PoseDiagnosticViewModel.swift`'s `Movie` /
-  `PhotosPickerItem` handling).
+- Entry point *is* the picker — a 3-column grid of thumbnails covering every
+  video in the device's Photos library, not a button that opens a picker
+  sheet. Tapping a tile is the "pick video" action and goes straight to
+  Processing for that video.
 - No account, no settings required for v1 — nothing in `DESIGN.md`'s v1 scope
   needs either.
+- **Technical implication worth flagging**: this is a different permission
+  model from what's already built. The pose-diagnostic screen
+  (`Turnip/PoseDiagnostic/PoseDiagnosticViewModel.swift`) uses
+  `PhotosPickerItem` / `PHPickerViewController`, which runs out-of-process
+  and needs **no** Photos permission at all. A gallery grid needs to
+  enumerate every video `PHAsset` up front to render tiles, which means:
+  - Full Photos library read access (`NSPhotoLibraryUsageDescription`),
+    requested on first launch.
+  - Handling **limited** library access (iOS lets the user grant only a
+    subset of their library) — the grid should show just the granted
+    videos plus a way to grant more, not silently look empty.
+  - Handling **denied** access — an empty state pointing at Settings, since
+    there's no picker fallback once Home itself is the gallery.
+  - Thumbnail loading/caching (`PHCachingImageManager`) and pagination for
+    libraries with hundreds of videos, so the grid stays scrollable and
+    doesn't stall on first load.
 
 ### 2. Processing
 
@@ -57,10 +73,9 @@ flowchart TD
   feedback, not just a spinner — e.g. "analyzing frame 400/1200."
 - Two exits besides success:
   - **Empty state** — pipeline completes but finds zero trick windows (e.g.
-    user picked a video with no motion peaks). Message + "pick another
-    video," not an error.
+    user picked a video with no motion peaks). Message + back to Home.
   - **Error state** — pipeline throws (unreadable video, pose model failure).
-    Message + retry / pick another video.
+    Message + retry, or back to Home.
 
 ### 3. Clip List (triage)
 
