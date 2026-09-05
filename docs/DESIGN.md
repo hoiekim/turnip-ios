@@ -1,8 +1,10 @@
 # Turnip — Tricking Video Auto-Editor + Community Labeling Platform
 
-*Rev 5 · 2026-09-01 · Draft for review.*
+*Rev 6 · 2026-09-04 · Draft for review.*
 
-*(Rev 1 targeted iOS-only, personal-use. Rev 2 expanded to open-source app + backend + community labeling + continuous ML training. Rev 3 depersonalized for public repo and added the pose-model escalation ladder + motion-signal blur mitigations. Rev 4 swapped GitHub OAuth for Sign in with Apple, added iOS Share Sheet for social-media publishing, and added v2 social features — following relationships + video feed. Rev 5 tightens the Sign in with Apple validation contract (`iss` + `exp` on top of `aud` + signature), adds the videos-side feed indexes, adds a self-follow guard, and pins MoveNet Thunder's quantization variant.)*
+*(Rev 1 targeted iOS-only, personal-use. Rev 2 expanded to open-source app + backend + community labeling + continuous ML training. Rev 3 depersonalized for public repo and added the pose-model escalation ladder + motion-signal blur mitigations. Rev 4 swapped GitHub OAuth for Sign in with Apple, added iOS Share Sheet for social-media publishing, and added v2 social features — following relationships + video feed. Rev 5 tightens the Sign in with Apple validation contract (`iss` + `exp` on top of `aud` + signature), adds the videos-side feed indexes, adds a self-follow guard, and pins MoveNet Thunder's quantization variant. Rev 6 resolves the seven open questions into recorded decisions and adds the screen-flow companion doc pointer.)*
+
+*Screen-level flow for the v1 app lives in [`UIUX.md`](UIUX.md).*
 
 ## Problem
 
@@ -133,6 +135,7 @@ The pipeline handles this at multiple layers:
     - `POST /api/auth/apple` — exchange Apple identity token → session cookie
     - `POST /api/videos/upload` — presigned R2 URL, returns video ID
     - `POST /api/videos/:id/labels` — submit label (trick windows + crop rects + trick class if any)
+    - `DELETE /api/videos/:id` — owner-only hard delete (row + R2 object); the retention policy is "keep forever, user-deletable" (see § "Decisions" #4)
     - `GET /api/labels/pending` — return N unlabeled clips (for labeling UI)
     - `POST /api/reports` — user reports abuse/bad label
     - `GET /api/models/current` — current Core ML manifest (version, URL, checksum)
@@ -288,15 +291,17 @@ R2's $0 egress is what keeps this cheap even as video volume grows. AWS S3 would
 - **PR review flow**: reviewer approval; use a small `.github/CODEOWNERS` to auto-request the right reviewer per subdirectory
 - **CI on PRs**: lint + unit tests. Nothing gates review, but red CI slows merges.
 
-## Open questions
+## Decisions (formerly open questions)
 
-1. **Model bundling vs OTA-only** — bundle a specific model version with the app for offline-first, or make first-launch download it? Bundled is simpler UX; OTA-only saves ~7 MB of app size.
-2. **Trick classification in v2** — do we tag "cork/540/backflip/etc." from day 1? Enables leaderboards, per-trick filtering. Uses PoseC3D-FineGym as the starting classifier.
-3. **User-facing labeling incentive** — reputation + badges + "your labels improved the model" notifications? Community-app incentive design matters.
-4. **Storage retention** — do we keep every uploaded video forever, or auto-purge after N days if the labeling round is done + label is committed? Storage-cost implications.
-5. **Community moderation vs single-admin moderation for v1** — sole maintainer, or grant N trusted users mod rights? Sole-admin is safest early; hard to keep up as user base grows.
-6. **CLA** — recommendation is skip; confirm.
-7. **Analytics** — any telemetry (privacy-respecting, opt-in) for feature usage / crash reports? PostHog self-hosted is a common OSS choice.
+Resolved 2026-09-04. Each records the decision, the reason, and the trigger that would reopen it.
+
+1. **Model bundling vs OTA-only → Bundle.** The int8 model is ~7 MB against the App Store's 200 MB cellular download limit, so "saving 7 MB" buys nothing, and OTA-only breaks first launch offline. OTA updates (§ "OTA model updates") layer on top of the bundled model as a replacement path, never a prerequisite. *Reopen if:* the escalation ladder lands on a model > ~50 MB.
+2. **Trick classification in v2 → No classifier at launch, but capture the field from day 1.** The `labels` table already carries an optional trick class; expose it in the labeling UI as an optional free-text/enum tag so training data accrues from the first label. Train a classifier (PoseC3D-FineGym starting point) only once there's volume to train on. Zero ML cost now, no data lost.
+3. **Labeling incentive → Reputation score + a "your contributions" stats screen. Defer badges and notifications.** Reputation is already required for moderation (§ "Label quality + abuse"), so surfacing it is free. Badges are a design project with no evidence they're needed at v2 volumes. *Reopen if:* labeling throughput stalls with active users who aren't labeling.
+4. **Storage retention → Keep forever, user-deletable.** Uploads are already-trimmed clips (the app trims before upload), so 1,000 clips ≈ 10 GB ≈ $1.50/mo on R2. A purge policy isn't worth building until roughly 1 TB (~$15/mo). Ship a `DELETE /api/videos/:id` (owner-only) from day 1 so deletion requests are honored without an admin. *Reopen if:* R2 storage passes ~1 TB.
+5. **Moderation model → Single admin at launch.** The `moderation_events` log and trusted-user spot checks already in § "Label quality + abuse" are the on-ramp. Add a moderator role when the open report queue exceeds what one person clears in a week — a measurable trigger, not a guess.
+6. **CLA → Skip.** Decided in issue #4; Apache 2.0 § 5 covers contributions. `CONTRIBUTING.md` already states this.
+7. **Analytics → None in v1.** Crash reports and hang/launch metrics come from Xcode Organizer + MetricKit, which are opt-in through iOS's own "Share With App Developers" setting — no SDK, no consent UI, and the "nothing leaves your device" claim in the README stays literally true. If v2 needs product analytics, prefer TelemetryDeck (Swift-native, anonymous signals, no consent prompt) over self-hosted PostHog, which is a full platform to operate on a $6 droplet. *Reopen when:* v2 backend ships and there's a product question only usage data can answer.
 
 ## Empirical test — the first work item
 

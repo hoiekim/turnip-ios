@@ -1,6 +1,8 @@
 # Turnip — UI/UX Flow (v1 MVP)
 
-*Rev 1 · 2026-09-04 · Draft for review.*
+*Rev 2 · 2026-09-04 · Draft for review.*
+
+*(Rev 1 established the five-screen flow and made Home a Photos video gallery. Rev 2 resolves the three open questions into decisions.)*
 
 Companion to [`DESIGN.md`](DESIGN.md), which specifies the auto-edit *pipeline*
 (pose detection → motion signal → peak detection → crop rect → export). This
@@ -30,6 +32,7 @@ flowchart TD
     B -->|clips found| C[Clip List]
     B -->|no tricks detected| E1[Empty state]
     B -->|pipeline error| E2[Error state]
+    B -->|cancel| A
     E1 -->|back to Home| A
     E2 -->|retry / back to Home| A
     C -->|tap a clip| D[Clip Detail / Editor]
@@ -122,15 +125,21 @@ flowchart TD
 - Visual design (colors, typography, exact layout) — this doc fixes screens
   and transitions, not pixels.
 
-## Open questions
+## Decisions (formerly open questions)
 
-1. **Crop rect editing** — Clip Detail lets the user adjust the trim window;
-   does it also expose direct crop-rect adjustment (drag the box), or is the
-   crop rect always derived from the trim window per issue #9's algorithm
-   with no manual override in v1? Leaning toward no manual override for v1 —
-   keeps Clip Detail simpler — but flagging since `DESIGN.md` doesn't say.
-2. **Multi-select in Clip List** — is keep/discard purely per-card, or is
-   there a "discard all" / "keep all" bulk action once clip counts get high
-   (a long recording session could produce 10+ trick windows)?
-3. **Processing screen navigation** — can the user cancel a long-running
-   pipeline run and go back to Home, or must they wait it out?
+Resolved 2026-09-04.
+
+1. **Crop rect editing → No manual override in v1.** The crop rect is always
+   derived from the trim window per issue #9's algorithm; adjusting the trim
+   handles in Clip Detail re-derives it. Keeps Clip Detail to one gesture
+   surface. *Reopen if:* real-footage testing (#2) shows the auto-crop is
+   wrong often enough that users need to fix it by hand.
+2. **Bulk keep/discard → Not in v1.** Every clip defaults to "kept"; a user
+   discards by tapping individual cards. At ~10 clips per session that's a
+   few taps. Add "discard all" only if feedback asks for it.
+3. **Cancel during processing → Yes.** Processing (#17) exposes a cancel
+   action that returns to Home. It's nearly free with structured concurrency
+   (cooperative `Task.isCancelled` checks in the frame-sampler loop, tracked
+   in #21), and users will background or leave the screen anyway — a clean
+   cancel beats a stuck screen. The flow diagram's `Processing → Home` edge
+   covers this path.
