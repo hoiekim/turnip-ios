@@ -28,11 +28,18 @@ step() {
 # `cocoapods` here would float independently of GitHub Actions' pins.
 # Unconditional, matching ci.yml: Xcode Cloud provisions a fresh VM per
 # build, so there's nothing to skip.
+#
+# Installed to a user-writable prefix, not /usr/local: Xcode Cloud's build
+# environment has no passwordless sudo, so a `sudo ./install.sh` here just
+# hangs on a password prompt that can never be answered.
 install_xcodegen() {
+  local prefix="$HOME/.local"
   curl -sL -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
   unzip -q xcodegen.zip -d xcodegen-pkg
-  sudo ./xcodegen-pkg/xcodegen/install.sh
+  mkdir -p "$prefix"
+  ./xcodegen-pkg/xcodegen/install.sh "$prefix"
   rm -rf xcodegen.zip xcodegen-pkg
+  export PATH="$prefix/bin:$PATH"
 }
 
 step "install xcodegen 2.46.0" install_xcodegen
