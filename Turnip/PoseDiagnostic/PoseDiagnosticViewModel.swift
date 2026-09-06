@@ -39,12 +39,19 @@ final class PoseDiagnosticViewModel: ObservableObject {
             do {
                 let videoURL = try await Self.loadVideoURL(from: selectedItem)
                 let model = try MoveNetThunderModel()
-                try await sampler.sampleFrames(from: videoURL) { [weak self] frame in
-                    let keypoints = try model.runInference(on: frame.pixelBuffer)
+                // The handler is `@Sendable`, so it does NOT inherit this class's MainActor
+                // isolation: decoding, inference, and logging all run off the main thread, and
+                // only the `@Published` append below hops back to MainActor. Without `@Sendable`
+                // the closure would run on main and `MainActor.run` would be a no-op (#24).
+                // `self` is captured strongly: the enclosing Task already keeps it alive for the
+                // whole run, and a `[weak self]` here would be a captured `var`, which Swift 6
+                // rejects when referenced from the nested `MainActor.run` closure.
+                try await sampler.sampleFrames(from: videoURL) { frame in
+                    let keypoints = try await model.runInference(on: frame.pixelBuffer)
                     let result = PoseFrameResult(frameIndex: frame.frameIndex, timestamp: frame.timestamp, keypoints: keypoints)
                     PoseResultLogger.log(result)
                     await MainActor.run {
-                        self?.results.append(result)
+                        self.results.append(result)
                     }
                 }
             } catch let error as PoseDiagnosticError {

@@ -5,7 +5,13 @@ import TensorFlowLite
 
 /// Wraps a TensorFlowLiteSwift Interpreter for MoveNet Thunder (singlepose, int8).
 /// See Turnip/Models/README.md for how to obtain the bundled model file.
-final class MoveNetThunderModel {
+///
+/// An `actor` rather than a class for two reasons: TFLite's `Interpreter` is not thread-safe, so
+/// inference calls must be serialized, and actors run on the cooperative pool — never the main
+/// thread — so `runInference` (CIContext resize, BGRA→RGB repack, `invoke()`, dequantize) is
+/// structurally kept off the UI thread. Being an actor also makes the model `Sendable`, so it can
+/// be captured by the `@Sendable` frame handler in `VideoFrameSampler.sampleFrames`.
+actor MoveNetThunderModel {
     private let interpreter: Interpreter
     private let inputWidth: Int
     private let inputHeight: Int

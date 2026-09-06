@@ -1,7 +1,15 @@
 import AVFoundation
 import CoreVideo
 
-struct SampledFrame {
+/// One decoded frame handed to `VideoFrameSampler.sampleFrames`' handler.
+///
+/// `@unchecked Sendable` because `CVPixelBuffer` has no `Sendable` conformance on this SDK, yet the
+/// frame must cross from the sampler's decode loop into the `@Sendable` handler (and from there
+/// into the `MoveNetThunderModel` actor). The crossing is safe by construction: each buffer is
+/// produced by a single `AVAssetReader` loop, handed to exactly one handler invocation, and the
+/// loop `await`s that invocation before decoding the next frame — so no two contexts ever touch
+/// the same buffer concurrently. Revisit if the sampler ever fans frames out to parallel consumers.
+struct SampledFrame: @unchecked Sendable {
     let frameIndex: Int
     let timestamp: TimeInterval
     let pixelBuffer: CVPixelBuffer
@@ -13,7 +21,14 @@ struct SampledFrame {
 final class VideoFrameSampler {
     private let sampleStride = 3
 
-    func sampleFrames(from url: URL, handler: (SampledFrame) async throws -> Void) async throws {
+    /// Decodes `url` and invokes `handler` once per kept frame, sequentially, off the main actor.
+    ///
+    /// `handler` is `@Sendable` on purpose: a non-`Sendable` closure formed inside a `@MainActor`
+    /// context (e.g. `PoseDiagnosticViewModel`) inherits that isolation, and every call to it would
+    /// hop back onto the main thread — putting per-frame inference on the UI thread. `@Sendable`
+    /// breaks that inheritance so the handler runs on the generic executor alongside decoding, and
+    /// callers must hop to `MainActor` explicitly for any UI-bound writes.
+    func sampleFrames(from url: URL, handler: @Sendable (SampledFrame) async throws -> Void) async throws {
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw PoseDiagnosticError.videoLoadFailed(underlying: nil)
