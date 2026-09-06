@@ -38,13 +38,13 @@ final class PoseDiagnosticViewModel: ObservableObject {
             defer { isRunning = false }
             do {
                 let videoURL = try await Self.loadVideoURL(from: selectedItem)
-                let model = try MoveNetThunderModel()
-                try await sampler.sampleFrames(from: videoURL) { [weak self] frame in
-                    let keypoints = try model.runInference(on: frame.pixelBuffer)
+                let model = try await MoveNetThunderModel.load()
+                try await sampler.sampleFrames(from: videoURL) { frame in
+                    let keypoints = try await model.runInference(on: frame.pixelBuffer)
                     let result = PoseFrameResult(frameIndex: frame.frameIndex, timestamp: frame.timestamp, keypoints: keypoints)
                     PoseResultLogger.log(result)
                     await MainActor.run {
-                        self?.results.append(result)
+                        self.results.append(result)
                     }
                 }
             } catch let error as PoseDiagnosticError {
