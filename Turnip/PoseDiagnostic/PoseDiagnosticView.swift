@@ -1,22 +1,25 @@
-import PhotosUI
 import SwiftUI
 
 /// Empirical-test tool per docs/DESIGN.md's "first work item": run MoveNet Thunder on a real
 /// tricking clip and surface per-frame confidence + keypoint count, to decide whether Thunder
 /// is accurate enough or the model escalation ladder needs to fire.
+///
+/// Reached from Home by tapping a video tile. This is a stand-in destination until the Processing
+/// screen (#17) exists; Home's `navigationDestination` is the one place to swap it.
 struct PoseDiagnosticView: View {
+    let video: SelectedVideo
     @StateObject private var viewModel = PoseDiagnosticViewModel()
 
     var body: some View {
         VStack(spacing: 16) {
-            PhotosPicker(selection: $viewModel.selectedItem, matching: .videos) {
-                Label("Select a video", systemImage: "video.badge.plus")
-            }
+            Text("Video length \(VideoDurationFormatter.string(from: video.duration))")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
 
             Button("Run diagnostic") {
-                viewModel.runDiagnostic()
+                viewModel.runDiagnostic(on: video.url)
             }
-            .disabled(viewModel.selectedItem == nil || viewModel.isRunning)
+            .disabled(viewModel.isRunning)
 
             if viewModel.isRunning {
                 ProgressView("Running pose detection…")
@@ -40,11 +43,15 @@ struct PoseDiagnosticView: View {
             .listStyle(.plain)
         }
         .padding()
+        .navigationTitle("Pose diagnostic")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
 #Preview {
     NavigationStack {
-        PoseDiagnosticView()
+        PoseDiagnosticView(
+            video: SelectedVideo(assetIdentifier: "preview", url: URL(filePath: "/dev/null"), duration: 12)
+        )
     }
 }
