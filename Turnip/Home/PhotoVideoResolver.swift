@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import Photos
 
-/// Why a picked video couldn't be turned into a readable file. Deliberately separate from
+/// Why a picked video couldn't be turned into a readable asset. Deliberately separate from
 /// `PoseDiagnosticError` (and from whatever the pipeline will throw): a failed iCloud download is a
 /// connectivity problem the user can fix, not an analysis failure, and the UI should say so.
 enum VideoResolutionError: LocalizedError {
@@ -31,22 +31,24 @@ enum VideoResolutionError: LocalizedError {
     }
 }
 
-/// Resolves a `PHAsset` to a file URL the pipeline can read.
+/// Resolves a `PHAsset` to an `AVURLAsset` the pipeline can read.
 ///
-/// The common case is free: Photos returns an `AVURLAsset` for ordinary recordings, and that URL is
-/// readable for as long as the app holds library access — no copy, no export. Two slower paths:
+/// The common case is free: Photos returns an `AVURLAsset` for ordinary recordings, and that object
+/// is handed on as-is — not reduced to its URL. The file lives inside the Photos container, and it is
+/// the object PhotoKit returned that carries read access to it; a fresh `AVURLAsset(url:)` on the
+/// same path is not guaranteed to open. Two slower paths:
 ///
 /// - **iCloud-only assets.** `isNetworkAccessAllowed` is on, so Photos downloads first and reports
 ///   through `onProgress`; the caller shows that progress because a multi-hundred-MB download on
 ///   cellular is not instant. Failures surface as `.iCloudDownloadFailed`, not a generic error.
 /// - **Compositions.** Slow-motion and edited videos come back as `AVComposition`s, which have no
-///   URL. Those are exported to a temp file. (Temp-file cleanup is tracked in #23.)
+///   URL. Those are exported to a temp file and returned as an `AVURLAsset` on that file.
 ///
 /// Task cancellation cancels the in-flight PhotoKit request or export.
 struct PhotoVideoResolver {
     var imageManager: PHImageManager = .default()
 
-    func resolve(_ asset: PHAsset, onProgress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+    func resolve(_ asset: PHAsset, onProgress: @escaping @Sendable (Double) -> Void) async throws -> AVURLAsset {
         let options = PHVideoRequestOptions()
         options.isNetworkAccessAllowed = true
         options.version = .current
@@ -71,14 +73,16 @@ struct PhotoVideoResolver {
         }
 
         if let urlAsset = avAsset as? AVURLAsset {
-            return urlAsset.url
+            return urlAsset
         }
+        // Don't start an export the user has already backed out of.
+        try Task.checkCancellation()
         return try await export(asset, options: options)
     }
 
     // MARK: - Composition export
 
-    private func export(_ asset: PHAsset, options: PHVideoRequestOptions) async throws -> URL {
+    private func export(_ asset: PHAsset, options: PHVideoRequestOptions) async throws -> AVURLAsset {
         // Not passthrough: slow-mo compositions carry time-scaled segments that passthrough can't
         // re-mux, so this re-encodes. Slower, but it works for every composition Photos produces.
         let session: AVAssetExportSession = try await request(errorKind: { .exportFailed(underlying: $0) }) { handler in
@@ -103,7 +107,7 @@ struct PhotoVideoResolver {
 
         switch session.status {
         case .completed:
-            return outputURL
+            return AVURLAsset(url: outputURL)
         case .cancelled:
             throw CancellationError()
         default:
@@ -183,10 +187,15 @@ private final class DownloadFlag: @unchecked Sendable {
     }
 }
 
-/// Holds the continuation and request ID for one in-flight PhotoKit request so it can be resumed
-/// exactly once from whichever arrives first: the result handler, or task cancellation. Guards
-/// against PhotoKit calling the handler after cancellation (or not at all — the docs don't
-/// promise a callback for a cancelled request, so cancellation resumes the continuation itself).
+/// Holds the continuation and request ID for one in-flight PhotoKit request so it is resumed
+/// exactly once, from whichever arrives first: the result handler, or task cancellation. Guards
+/// against PhotoKit calling the handler after cancellation (or not at all — the docs don't promise
+/// a callback for a cancelled request, so cancellation resumes the continuation itself).
+///
+/// Cancellation can also arrive *before* the continuation exists: `withTaskCancellationHandler`
+/// runs its handler immediately when the task is already cancelled on entry, ahead of the
+/// operation closure. `store` handles that case by resuming straight away instead of parking a
+/// continuation that nothing would ever resume.
 private final class RequestBox<T>: @unchecked Sendable {
     private let lock = NSLock()
     private let imageManager: PHImageManager
@@ -200,8 +209,14 @@ private final class RequestBox<T>: @unchecked Sendable {
 
     func store(_ continuation: CheckedContinuation<T, Error>) {
         lock.lock()
-        self.continuation = continuation
+        let cancelled = isCancelled
+        if !cancelled {
+            self.continuation = continuation
+        }
         lock.unlock()
+        if cancelled {
+            continuation.resume(throwing: CancellationError())
+        }
     }
 
     /// Records the request ID once PhotoKit returns it. If cancellation already happened (a race

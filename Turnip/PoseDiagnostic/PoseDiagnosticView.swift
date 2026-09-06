@@ -1,11 +1,11 @@
+import AVFoundation
 import SwiftUI
 
 /// Empirical-test tool per docs/DESIGN.md's "first work item": run MoveNet Thunder on a real
 /// tricking clip and surface per-frame confidence + keypoint count, to decide whether Thunder
 /// is accurate enough or the model escalation ladder needs to fire.
 ///
-/// Reached from Home by tapping a video tile. This is a stand-in destination until the Processing
-/// screen (#17) exists; Home's `navigationDestination` is the one place to swap it.
+/// Reached from Home by tapping a video tile.
 struct PoseDiagnosticView: View {
     let video: SelectedVideo
     @StateObject private var viewModel = PoseDiagnosticViewModel()
@@ -17,7 +17,7 @@ struct PoseDiagnosticView: View {
                 .foregroundStyle(.secondary)
 
             Button("Run diagnostic") {
-                viewModel.runDiagnostic(on: video.url)
+                viewModel.runDiagnostic(on: video.asset)
             }
             .disabled(viewModel.isRunning)
 
@@ -51,7 +51,7 @@ struct PoseDiagnosticView: View {
 #Preview {
     NavigationStack {
         PoseDiagnosticView(
-            video: SelectedVideo(assetIdentifier: "preview", url: URL(filePath: "/dev/null"), duration: 12)
+            video: SelectedVideo(assetIdentifier: "preview", asset: AVURLAsset(url: URL(filePath: "/dev/null")), duration: 12)
         )
     }
 }

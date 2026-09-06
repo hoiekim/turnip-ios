@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import SwiftUI
 
@@ -9,9 +10,9 @@ final class PoseDiagnosticViewModel: ObservableObject {
 
     private let sampler = VideoFrameSampler()
 
-    /// Runs MoveNet Thunder over `videoURL`, the file Home resolved from the tapped `PHAsset`
-    /// (see `SelectedVideo`).
-    func runDiagnostic(on videoURL: URL) {
+    /// Runs MoveNet Thunder over `asset`, the video Home resolved from the tapped tile (see
+    /// `SelectedVideo`).
+    func runDiagnostic(on asset: AVURLAsset) {
         guard !isRunning else { return }
         results = []
         errorMessage = nil
@@ -21,7 +22,7 @@ final class PoseDiagnosticViewModel: ObservableObject {
             defer { isRunning = false }
             do {
                 let model = try await MoveNetThunderModel.load()
-                try await sampler.sampleFrames(from: videoURL) { frame in
+                try await sampler.sampleFrames(from: asset) { frame in
                     let keypoints = try await model.runInference(on: frame.pixelBuffer)
                     let result = PoseFrameResult(frameIndex: frame.frameIndex, timestamp: frame.timestamp, keypoints: keypoints)
                     PoseResultLogger.log(result)

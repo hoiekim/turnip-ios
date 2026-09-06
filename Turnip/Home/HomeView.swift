@@ -11,8 +11,8 @@ struct HomeView: View {
             content
                 .navigationTitle("Turnip")
                 .navigationDestination(for: SelectedVideo.self) { video in
-                    // Until the Processing screen (#17) exists, a picked video goes to the pose
-                    // diagnostic — it's the only consumer of a video today.
+                    // The pose diagnostic is the only consumer of a picked video today. This is
+                    // the one place to swap in the Processing screen.
                     PoseDiagnosticView(video: video)
                 }
         }
@@ -76,18 +76,20 @@ struct VideoGalleryView: View {
     private var grid: some View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: Self.spacing) {
-                ForEach(viewModel.videos, id: \.localIdentifier) { asset in
+                ForEach(Array(viewModel.videos.enumerated()), id: \.element.localIdentifier) { index, asset in
                     Button {
                         viewModel.select(asset)
                     } label: {
                         VideoTileView(
                             asset: asset,
-                            imageManager: viewModel.thumbnailManager,
-                            resolution: viewModel.resolution
+                            thumbnails: viewModel.thumbnails,
+                            isResolving: viewModel.isResolving(asset),
+                            downloadProgress: viewModel.downloadProgress(for: asset)
                         )
                     }
                     .buttonStyle(.plain)
                     .disabled(viewModel.resolution != nil)
+                    .onAppear { viewModel.tileAppeared(at: index) }
                 }
             }
         }

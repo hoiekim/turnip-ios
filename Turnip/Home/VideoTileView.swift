@@ -4,18 +4,21 @@ import SwiftUI
 /// One square cell in the Home grid: cached thumbnail, duration badge, and — while this tile's
 /// video is being fetched — a progress overlay (a determinate ring during an iCloud download, a
 /// spinner otherwise).
+///
+/// Inputs are deliberately narrow (`isResolving` / `downloadProgress` rather than the whole
+/// in-flight resolution) so an iCloud progress tick only invalidates the tile that is downloading.
 struct VideoTileView: View {
     let asset: PHAsset
-    let imageManager: PHImageManager
-    let resolution: VideoLibraryViewModel.Resolution?
+    let thumbnails: ThumbnailLoader
+    let isResolving: Bool
+    let downloadProgress: Double?
 
     @Environment(\.displayScale) private var displayScale
     @State private var image: UIImage?
+    /// True while `image` is the low-quality first delivery. A tile that scrolls away before the
+    /// final image arrives must be allowed to request again when it comes back.
+    @State private var imageIsDegraded = false
     @State private var requestID: PHImageRequestID?
-
-    private var isResolving: Bool {
-        resolution?.assetIdentifier == asset.localIdentifier
-    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -52,8 +55,8 @@ struct VideoTileView: View {
     private var resolvingOverlay: some View {
         ZStack {
             Color.black.opacity(0.5)
-            if let progress = resolution?.downloadProgress {
-                ProgressRing(progress: progress)
+            if let downloadProgress {
+                ProgressRing(progress: downloadProgress)
                     .frame(width: 36, height: 36)
             } else {
                 ProgressView()
@@ -76,29 +79,29 @@ struct VideoTileView: View {
     // MARK: - Thumbnail loading
 
     private func load(targetSize: CGSize) {
-        guard image == nil, requestID == nil else { return }
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
-        options.resizeMode = .fast
-        options.isNetworkAccessAllowed = true
-        let pixelSize = CGSize(width: targetSize.width * displayScale, height: targetSize.height * displayScale)
+        guard requestID == nil, image == nil || imageIsDegraded else { return }
+        let pixelSize = ThumbnailLoader.pixelSize(for: targetSize, scale: displayScale)
 
-        requestID = imageManager.requestImage(
-            for: asset, targetSize: pixelSize, contentMode: .aspectFill, options: options
-        ) { result, info in
+        let id = thumbnails.requestImage(for: asset, pixelSize: pixelSize) { result, isDegraded in
             // Opportunistic delivery may call back twice (degraded, then final); keep whichever is latest.
             if let result {
                 image = result
+                imageIsDegraded = isDegraded
             }
-            if (info?[PHImageResultIsDegradedKey] as? Bool) != true {
+            if !isDegraded {
                 requestID = nil
             }
+        }
+        // A cache hit delivers the final image synchronously, before `requestImage` returns; don't
+        // record an ID for a request that has already finished.
+        if image == nil || imageIsDegraded {
+            requestID = id
         }
     }
 
     private func cancel() {
         if let requestID {
-            imageManager.cancelImageRequest(requestID)
+            thumbnails.cancel(requestID)
         }
         requestID = nil
     }
