@@ -1,0 +1,92 @@
+import Photos
+import UIKit
+
+/// Owns the `PHCachingImageManager` behind the Home grid and keeps its cache warm around what the
+/// user is looking at.
+///
+/// `PHCachingImageManager` caches nothing on its own — only assets handed to `startCachingImages`
+/// are prefetched — so as tiles appear this re-centers a window of assets on the newest visible
+/// index, starts caching what entered the window and stops caching what left it. Cache hits also
+/// require the exact same size, content mode and options as the prefetch, which is why the tiles'
+/// own requests go through here rather than straight to the manager.
+@MainActor
+final class ThumbnailLoader {
+    /// Assets on each side of the newest visible tile to keep warm. At 3 columns and ~5 rows per
+    /// screen this is a bit over a screen in each direction — enough to cover a flick, small enough
+    /// that the decoded thumbnails stay in the tens of megabytes.
+    static let prefetchRadius = 18
+
+    private let manager: PHCachingImageManager
+    private let options: PHImageRequestOptions
+    private var cachedRange: Range<Int> = 0..<0
+    private var cachedAssets: [PHAsset] = []
+    /// Learned from the first tile request. Tiles are uniform, so one size serves the whole grid.
+    private var pixelSize: CGSize?
+
+    init() {
+        manager = PHCachingImageManager()
+        manager.allowsCachingHighQualityImages = false
+        options = PHImageRequestOptions()
+        options.deliveryMode = .opportunistic
+        options.resizeMode = .fast
+        options.isNetworkAccessAllowed = true
+    }
+
+    static func pixelSize(for pointSize: CGSize, scale: CGFloat) -> CGSize {
+        CGSize(width: pointSize.width * scale, height: pointSize.height * scale)
+    }
+
+    /// Requests one tile's thumbnail. `handler` may be called twice under opportunistic delivery —
+    /// a degraded image first, then the final one — and reports which it is.
+    func requestImage(
+        for asset: PHAsset, pixelSize: CGSize, handler: @escaping (UIImage?, _ isDegraded: Bool) -> Void
+    ) -> PHImageRequestID {
+        self.pixelSize = pixelSize
+        return manager.requestImage(for: asset, targetSize: pixelSize, contentMode: .aspectFill, options: options) { image, info in
+            handler(image, (info?[PHImageResultIsDegradedKey] as? Bool) == true)
+        }
+    }
+
+    func cancel(_ requestID: PHImageRequestID) {
+        manager.cancelImageRequest(requestID)
+    }
+
+    /// Tile `index` of `assets` just appeared: re-center the prefetch window on it.
+    func tileAppeared(at index: Int, in assets: [PHAsset]) {
+        guard let pixelSize else { return }
+        let range = Self.prefetchRange(around: index, count: assets.count, radius: Self.prefetchRadius)
+        guard range != cachedRange else { return }
+
+        let incoming = Array(assets[range])
+        let incomingIDs = Set(incoming.map(\.localIdentifier))
+        let currentIDs = Set(cachedAssets.map(\.localIdentifier))
+        let toStop = cachedAssets.filter { !incomingIDs.contains($0.localIdentifier) }
+        let toStart = incoming.filter { !currentIDs.contains($0.localIdentifier) }
+
+        if !toStop.isEmpty {
+            manager.stopCachingImages(for: toStop, targetSize: pixelSize, contentMode: .aspectFill, options: options)
+        }
+        if !toStart.isEmpty {
+            manager.startCachingImages(for: toStart, targetSize: pixelSize, contentMode: .aspectFill, options: options)
+        }
+        cachedRange = range
+        cachedAssets = incoming
+    }
+
+    /// The asset list changed underneath the window (library change, reload): drop everything so
+    /// the next `tileAppeared` rebuilds the window against the new list.
+    func reset() {
+        manager.stopCachingImagesForAllAssets()
+        cachedRange = 0..<0
+        cachedAssets = []
+    }
+
+    /// The half-open index range to keep cached around `index`, clamped to `0..<count`.
+    nonisolated static func prefetchRange(around index: Int, count: Int, radius: Int) -> Range<Int> {
+        guard count > 0, radius >= 0 else { return 0..<0 }
+        let center = min(max(index, 0), count - 1)
+        let lower = max(0, center - radius)
+        let upper = min(count, center + radius + 1)
+        return lower..<upper
+    }
+}
