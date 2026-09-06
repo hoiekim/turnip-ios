@@ -20,7 +20,7 @@ private actor FrameObservations {
 
 /// `@MainActor` on purpose: this mirrors `PoseDiagnosticViewModel`, where the handler closure is
 /// formed inside a MainActor context. That is exactly the shape in which a non-`@Sendable` handler
-/// would inherit MainActor isolation and run per-frame work on the UI thread (#24).
+/// would inherit MainActor isolation and run per-frame work on the UI thread.
 @MainActor
 final class VideoFrameSamplerTests: XCTestCase {
     private var videoURL: URL!
@@ -108,7 +108,10 @@ final class VideoFrameSamplerTests: XCTestCase {
         writer.startSession(atSourceTime: .zero)
 
         for frameIndex in 0..<frameCount {
-            while !input.isReadyForMoreMediaData {
+            // Bounded on writer status: if the writer fails mid-write, `isReadyForMoreMediaData`
+            // never becomes true, and without this check the loop would spin until XCTest's
+            // timeout with no cause. Exiting instead lets `append` below surface `writer.error`.
+            while !input.isReadyForMoreMediaData && writer.status == .writing {
                 try await Task.sleep(nanoseconds: 1_000_000)
             }
             guard let pool = adaptor.pixelBufferPool else {

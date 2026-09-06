@@ -30,8 +30,8 @@ actor MoveNetThunderModel {
 
     /// Loads the bundled model off the main thread. A `nonisolated async` function runs on the
     /// generic executor regardless of the caller's isolation, so the `Interpreter` construction and
-    /// `allocateTensors()` inside `init` happen there — a one-time cost, but the same category of
-    /// main-thread work #24 was about.
+    /// `allocateTensors()` inside `init` happen there. This is paid once per diagnostic run, not
+    /// once per launch — every "Run diagnostic" tap builds a fresh model — so it must not block UI.
     nonisolated static func load() async throws -> MoveNetThunderModel {
         try MoveNetThunderModel()
     }

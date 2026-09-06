@@ -38,16 +38,7 @@ final class PoseDiagnosticViewModel: ObservableObject {
             defer { isRunning = false }
             do {
                 let videoURL = try await Self.loadVideoURL(from: selectedItem)
-                // `load()` is nonisolated async, so model construction (mmap + tensor allocation)
-                // happens on the generic executor rather than in this Task's MainActor context.
                 let model = try await MoveNetThunderModel.load()
-                // The handler is `@Sendable`, so it does NOT inherit this class's MainActor
-                // isolation: decoding, inference, and logging all run off the main thread, and
-                // only the `@Published` append below hops back to MainActor. Without `@Sendable`
-                // the closure would run on main and `MainActor.run` would be a no-op (#24).
-                // `self` is captured strongly: the enclosing Task already keeps it alive for the
-                // whole run, and a `[weak self]` here would be a captured `var`, which Swift 6
-                // rejects when referenced from the nested `MainActor.run` closure.
                 try await sampler.sampleFrames(from: videoURL) { frame in
                     let keypoints = try await model.runInference(on: frame.pixelBuffer)
                     let result = PoseFrameResult(frameIndex: frame.frameIndex, timestamp: frame.timestamp, keypoints: keypoints)
