@@ -38,7 +38,9 @@ final class PoseDiagnosticViewModel: ObservableObject {
             defer { isRunning = false }
             do {
                 let videoURL = try await Self.loadVideoURL(from: selectedItem)
-                let model = try MoveNetThunderModel()
+                // `load()` is nonisolated async, so model construction (mmap + tensor allocation)
+                // happens on the generic executor rather than in this Task's MainActor context.
+                let model = try await MoveNetThunderModel.load()
                 // The handler is `@Sendable`, so it does NOT inherit this class's MainActor
                 // isolation: decoding, inference, and logging all run off the main thread, and
                 // only the `@Published` append below hops back to MainActor. Without `@Sendable`

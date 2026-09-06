@@ -18,7 +18,13 @@ struct SampledFrame: @unchecked Sendable {
 /// Decodes video frames at native fps via AVAssetReader (not AVAssetImageGenerator, which
 /// reseeks per-frame and is both slower and less frame-accurate during fast motion), keeping
 /// every 3rd frame per docs/DESIGN.md's pipeline step 2.
-final class VideoFrameSampler {
+///
+/// A `Sendable` struct rather than a class: it is owned by a `@MainActor` view model but
+/// `sampleFrames` is nonisolated, so every call sends the sampler out of the main actor. With no
+/// mutable state there is nothing to protect, and being `Sendable` keeps that crossing legal under
+/// strict concurrency (Swift 6 would otherwise report "sending 'self.sampler' risks causing data
+/// races").
+struct VideoFrameSampler: Sendable {
     private let sampleStride = 3
 
     /// Decodes `url` and invokes `handler` once per kept frame, sequentially, off the main actor.
