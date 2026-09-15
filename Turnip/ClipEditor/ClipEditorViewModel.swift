@@ -20,7 +20,7 @@ import Foundation
 final class ClipEditorViewModel: ObservableObject {
     /// The shortest clip the trim handles can produce. Below this the export would be a
     /// flicker of a few frames; the handles stop instead of crossing.
-    static let minimumClipDuration: TimeInterval = 0.5
+    nonisolated static let minimumClipDuration: TimeInterval = 0.5
 
     @Published private(set) var window: TrickWindow
     @Published private(set) var cropRect: NormalizedRect
