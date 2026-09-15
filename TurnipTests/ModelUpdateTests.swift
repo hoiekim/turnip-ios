@@ -97,6 +97,25 @@ final class ModelUpdateTests: XCTestCase {
         XCTAssertFalse(ModelVersion("2026.09.10-1") < ModelVersion("2026.09.10"))
     }
 
+    /// `isWellFormed` is the gate the service's manifest validation uses:
+    /// only dotted-numeric versions with an optional `-N` build suffix order
+    /// predictably under `<`. Anything else would fall back to lexicographic
+    /// comparison, so these shapes must be rejected before they can reach
+    /// the loader's version floor.
+    func testVersionWellFormednessMatchesTheOrderingContract() {
+        for wellFormed in ["1", "0", "2026.09.10", "2026.09.10-1", "10.0.0-12"] {
+            XCTAssertTrue(
+                ModelVersion(wellFormed).isWellFormed,
+                "\(wellFormed) should be well-formed")
+        }
+        for malformed in ["", "v2", "2026-09-10", "1.2.", ".1", "1..2", "1.2-",
+                          "1.2-a", "-1", "1.2.3-", "1.2.3-4-5", "1. 2"] {
+            XCTAssertFalse(
+                ModelVersion(malformed).isWellFormed,
+                "\(malformed) should be malformed")
+        }
+    }
+
     // MARK: - Manifest decoding
 
     /// The manifest must decode from the exact JSON shape turnip-farm will
@@ -250,6 +269,37 @@ final class ModelUpdateTests: XCTestCase {
         XCTAssertNil(lastError)
     }
 
+    /// Two overlapping checks must not both hit the network: the second is
+    /// suppressed while the first is in flight, so one foreground-bounce
+    /// costs a single manifest fetch instead of two downloads racing. Fails
+    /// against the old implementation, which ran every call to completion.
+    func testOverlappingChecksAreSuppressed() async throws {
+        let store = makeStore()
+        let client = MockModelUpdateClient()
+        let bytes = Data("fake-model-bytes".utf8)
+        await client.setManifest(makeManifest(version: "2026.09.10-1", bytes: bytes))
+        await client.setDownloadBytes(bytes)
+        let service = makeService(client: client, store: store)
+
+        let first = Task.detached { await service.checkForUpdates() }
+        // Spin until the first check has entered its manifest fetch: the
+        // in-flight flag is set before the first await, so from here on the
+        // second check is guaranteed to overlap it.
+        var spins = 0
+        while await client.fetchedEndpoints.isEmpty, spins < 100_000 {
+            spins += 1
+            await Task.yield()
+        }
+        let fetchedEndpoints = await client.fetchedEndpoints
+        XCTAssertFalse(fetchedEndpoints.isEmpty)
+
+        await service.checkForUpdates() // must be suppressed, not queued
+        await first.value
+
+        let fetched = await client.fetchedEndpoints
+        XCTAssertEqual(fetched.count, 1)
+    }
+
     /// A manifest whose fileName tries to escape the OTA directory must be
     /// rejected before anything is written.
     func testUnsafeFileNameIsRejected() async throws {
@@ -270,7 +320,137 @@ final class ModelUpdateTests: XCTestCase {
         }
     }
 
+    /// A manifest with a malformed version must be rejected before anything
+    /// is downloaded: `ModelVersion`'s `Comparable` falls back to
+    /// lexicographic order for non-numeric components, so e.g. `"v2"` would
+    /// beat the bundled `"1"` and pin the client to a staged file the
+    /// version floor was meant to reject.
+    func testMalformedVersionIsRejected() async throws {
+        let store = makeStore()
+        let client = MockModelUpdateClient()
+        let bytes = Data("fake-model-bytes".utf8)
+        await client.setManifest(makeManifest(version: "v2", bytes: bytes))
+        await client.setDownloadBytes(bytes)
+
+        let service = makeService(client: client, store: store)
+        await service.checkForUpdates()
+
+        XCTAssertNil(store.activeModelURL())
+        let downloadRequests = await client.downloadRequests
+        XCTAssertTrue(downloadRequests.isEmpty)
+        let lastError = await service.lastError
+        guard case .invalidManifest? = lastError else {
+            return XCTFail("expected invalidManifest, got \(String(describing: lastError))")
+        }
+    }
+
+    // MARK: - Configuration
+
+    /// Absent, blank, and non-https endpoint values all keep OTA updates
+    /// disabled — the service must stay inert until a real turnip-farm
+    /// deployment exists. The service-level no-op test covers the `nil`
+    /// path end to end; this pins the parsing rule itself.
+    func testEndpointParseDisablesUpdatesWithoutValidHTTPSEndpoint() {
+        XCTAssertNil(ModelUpdateConfiguration.parseEndpoint(nil))
+        XCTAssertNil(ModelUpdateConfiguration.parseEndpoint(""))
+        XCTAssertNil(ModelUpdateConfiguration.parseEndpoint("   \n "))
+        XCTAssertNil(
+            ModelUpdateConfiguration.parseEndpoint("http://models.example.com"))
+        XCTAssertNil(ModelUpdateConfiguration.parseEndpoint("not a url"))
+        XCTAssertEqual(
+            ModelUpdateConfiguration.parseEndpoint("https://models.example.com"),
+            URL(string: "https://models.example.com"))
+        // A leading/trailing-blank https value still counts as configured.
+        XCTAssertEqual(
+            ModelUpdateConfiguration.parseEndpoint("  https://models.example.com\n"),
+            URL(string: "https://models.example.com"))
+    }
+
+    // MARK: - Loader version floor
+
+    /// The staged model shadows the bundled one only when its version is
+    /// strictly newer — an older staged file must not pin the app to a worse
+    /// model, and a stale staged file must not shadow a newer app build's
+    /// bundled model. A staged version with no bytes on disk counts as no
+    /// staged model at all.
+    func testResolveModelPathPrefersStagedOnlyWhenNewer() {
+        let bundled = "/bundle/movenet_thunder_int8.tflite"
+        let staged = "/support/ModelUpdates/movenet_thunder_int8.tflite"
+        XCTAssertEqual(
+            MoveNetThunderModel.resolveModelPath(
+                bundledPath: bundled,
+                stagedVersion: ModelVersion("2026.09.10-1"),
+                stagedPath: staged),
+            staged)
+        XCTAssertEqual(
+            MoveNetThunderModel.resolveModelPath(
+                bundledPath: bundled,
+                stagedVersion: ModelVersion("0"),
+                stagedPath: staged),
+            bundled)
+        XCTAssertEqual(
+            MoveNetThunderModel.resolveModelPath(
+                bundledPath: bundled,
+                stagedVersion: MoveNetThunderModel.bundledModelVersion,
+                stagedPath: staged),
+            bundled)
+        XCTAssertEqual(
+            MoveNetThunderModel.resolveModelPath(
+                bundledPath: bundled, stagedVersion: nil, stagedPath: nil),
+            bundled)
+        XCTAssertEqual(
+            MoveNetThunderModel.resolveModelPath(
+                bundledPath: bundled,
+                stagedVersion: ModelVersion("2026.09.10-1"),
+                stagedPath: nil),
+            bundled)
+    }
+
+    /// A missing bundled model doesn't abort resolution before the staged
+    /// file is consulted (inline review on #117): with no bundled path, a
+    /// newer staged model is still the candidate; with no staged model either,
+    /// resolution yields nil and the loader reports `modelNotFound`.
+    func testResolveModelPathWithMissingBundledModelConsultsStaged() {
+        let staged = "/support/ModelUpdates/movenet_thunder_int8.tflite"
+        XCTAssertEqual(
+            MoveNetThunderModel.resolveModelPath(
+                bundledPath: nil,
+                stagedVersion: ModelVersion("2026.09.10-1"),
+                stagedPath: staged),
+            staged)
+        XCTAssertNil(
+            MoveNetThunderModel.resolveModelPath(
+                bundledPath: nil, stagedVersion: nil, stagedPath: nil))
+        // A stale staged version still can't pin a missing bundle to a worse
+        // model: the version floor applies even with no bundled path.
+        XCTAssertNil(
+            MoveNetThunderModel.resolveModelPath(
+                bundledPath: nil,
+                stagedVersion: ModelVersion("0"),
+                stagedPath: staged))
+    }
+
     // MARK: - Store
+
+    /// Staging a model under the store's own sidecar name must throw
+    /// `invalidManifest` and stage nothing — otherwise the metadata write
+    /// would overwrite the model bytes it just staged.
+    func testStoreStageRejectsSidecarFileName() throws {
+        let store = makeStore()
+        do {
+            try store.stage(
+                modelData: Data("fake-model-bytes".utf8),
+                version: ModelVersion("2026.09.10-1"),
+                fileName: "active-model.json")
+            XCTFail("expected invalidManifest for the sidecar name")
+        } catch ModelUpdateError.invalidManifest {
+            // expected
+        } catch {
+            XCTFail("expected invalidManifest, got \(error)")
+        }
+        XCTAssertNil(store.activeVersion())
+        XCTAssertNil(store.activeModelURL())
+    }
 
     /// The store enforces the fileName allowlist itself: staging directly with
     /// a traversal name must throw `invalidManifest` and stage nothing, even
@@ -294,6 +474,34 @@ final class ModelUpdateTests: XCTestCase {
             XCTAssertNil(
                 store.activeVersion(), "nothing staged for '\(fileName)'")
         }
+    }
+
+    /// A staged record the loader proves wrong-variant must be evictable:
+    /// after `clearActive()` the store reports no staged version and no
+    /// staged file, so the next update check re-stages from the manifest
+    /// (the service short-circuits re-downloads while a record exists).
+    func testStoreClearActiveEvictsStagedRecord() throws {
+        let store = makeStore()
+        try store.stage(
+            modelData: Data("fake-model-bytes".utf8),
+            version: ModelVersion("2026.09.10-1"),
+            fileName: "model.tflite")
+        XCTAssertNotNil(store.activeVersion())
+        XCTAssertNotNil(store.activeModelURL())
+
+        store.clearActive()
+
+        XCTAssertNil(store.activeVersion())
+        XCTAssertNil(store.activeModelURL())
+    }
+
+    /// Evicting an empty store is a no-op, not an error — the loader calls it
+    /// defensively whenever a staged candidate fails the variant check.
+    func testStoreClearActiveOnEmptyStoreIsNoOp() {
+        let store = makeStore()
+        store.clearActive()
+        XCTAssertNil(store.activeVersion())
+        XCTAssertNil(store.activeModelURL())
     }
 
     // MARK: - Client

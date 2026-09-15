@@ -29,6 +29,18 @@ struct TurnipApp: App {
                 ContentView()
                 #endif
             }
+            // OTA model-update poll (issue #96): didBecomeActive fires on
+            // launch and on every foreground transition. checkForUpdates
+            // dispatches itself to a detached utility-QoS task, so the
+            // manifest fetch, hashing, and atomic stage stay off the main
+            // actor. Inert until TURNIP_MODEL_UPDATE_ENDPOINT is set — see
+            // ModelUpdateLifecycle.
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: UIApplication.didBecomeActiveNotification)
+            ) { _ in
+                ModelUpdateLifecycle.checkForUpdates()
+            }
         }
     }
 }
