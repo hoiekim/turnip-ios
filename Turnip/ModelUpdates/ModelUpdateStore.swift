@@ -51,12 +51,14 @@ struct ModelUpdateStore: Sendable {
         // "..") so a malicious manifest can't stage outside the store dir.
         // The store's own sidecar name is rejected too — staging a model as
         // "active-model.json" would collide with the metadata file written
-        // right after the bytes.
+        // right after the bytes. The comparison is case-insensitive because
+        // the iOS data volume is case-insensitive APFS: "ACTIVE-MODEL.JSON"
+        // would land on the same file as "active-model.json" on device.
         guard !fileName.isEmpty,
               !fileName.contains("/"),
               fileName != ".",
               fileName != "..",
-              fileName != Self.metadataFileName else {
+              fileName.lowercased() != Self.metadataFileName else {
             throw ModelUpdateError.invalidManifest
         }
         try FileManager.default.createDirectory(

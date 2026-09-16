@@ -434,22 +434,27 @@ final class ModelUpdateTests: XCTestCase {
 
     /// Staging a model under the store's own sidecar name must throw
     /// `invalidManifest` and stage nothing — otherwise the metadata write
-    /// would overwrite the model bytes it just staged.
+    /// would overwrite the model bytes it just staged. Both the exact and an
+    /// uppercase spelling are exercised: the rejection is case-insensitive
+    /// because the iOS data volume is case-insensitive APFS.
     func testStoreStageRejectsSidecarFileName() throws {
-        let store = makeStore()
-        do {
-            try store.stage(
-                modelData: Data("fake-model-bytes".utf8),
-                version: ModelVersion("2026.09.10-1"),
-                fileName: "active-model.json")
-            XCTFail("expected invalidManifest for the sidecar name")
-        } catch ModelUpdateError.invalidManifest {
-            // expected
-        } catch {
-            XCTFail("expected invalidManifest, got \(error)")
+        let version = ModelVersion("2026.09.10-1")
+        for fileName in ["active-model.json", "ACTIVE-MODEL.JSON"] {
+            let store = makeStore()
+            do {
+                try store.stage(
+                    modelData: Data("fake-model-bytes".utf8),
+                    version: version,
+                    fileName: fileName)
+                XCTFail("expected invalidManifest for '\(fileName)'")
+            } catch ModelUpdateError.invalidManifest {
+                // expected
+            } catch {
+                XCTFail("expected invalidManifest, got \(error)")
+            }
+            XCTAssertNil(store.activeVersion())
+            XCTAssertNil(store.activeModelURL())
         }
-        XCTAssertNil(store.activeVersion())
-        XCTAssertNil(store.activeModelURL())
     }
 
     /// The store enforces the fileName allowlist itself: staging directly with
