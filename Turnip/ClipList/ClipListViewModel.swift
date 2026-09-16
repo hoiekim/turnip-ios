@@ -12,10 +12,12 @@ final class ClipListViewModel: ObservableObject {
     /// Decoded thumbnails by item id. Plain storage, not `@Published`: no view reads
     /// this dictionary — each card renders from its own `@State` thumbnail — so
     /// publishing it would re-evaluate every card's body on every completed decode.
+    /// The entry depicts the item's window and crop rect at decode time; an editor
+    /// commit that changes either evicts it (see `applyEditorResult`).
     private var thumbnails: [UUID: CGImage] = [:]
 
     private let asset: AVAsset
-    private let loader: ClipThumbnailLoader
+    private let loader: any ClipThumbnailLoading
     private var inFlight: [UUID: Task<CGImage?, Never>] = [:]
 
     /// The video track's geometry, loaded once per asset and shared by every card's
@@ -28,7 +30,7 @@ final class ClipListViewModel: ObservableObject {
     init(
         items: [ClipListItem],
         asset: AVAsset,
-        loader: ClipThumbnailLoader = ClipThumbnailLoader()
+        loader: any ClipThumbnailLoading = ClipThumbnailLoader()
     ) {
         self.items = items
         self.asset = asset
@@ -88,13 +90,25 @@ final class ClipListViewModel: ObservableObject {
     /// (docs/UIUX.md § "Clip Detail / Editor"). A no-op for unknown ids — the
     /// item may have been removed by a re-run of detection while the editor
     /// was open.
+    ///
+    /// When the window or crop rect changed, the cached thumbnail (and any
+    /// in-flight decode) still depicts the old geometry — the frame at the old
+    /// window's midpoint, cropped to the old rect — so both are dropped. The
+    /// card's `.task(id:)` re-fires on the new geometry and re-populates the
+    /// cache with a fresh decode.
     func applyEditorResult(_ result: ClipEditorResult, to id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        let old = items[index]
         items[index] = ClipListItem(
             id: id,
             window: result.window,
             cropRect: result.cropRect,
             isKept: result.isKept)
+        if old.window != result.window || old.cropRect != result.cropRect {
+            inFlight[id]?.cancel()
+            inFlight[id] = nil
+            thumbnails[id] = nil
+        }
     }
 
     /// The per-card keep/discard quick action. A no-op for unknown ids — the card that
@@ -162,7 +176,9 @@ final class ClipListViewModel: ObservableObject {
     /// its thumbnail from the re-fired `.task` instead of a discarded, already-paid-for
     /// decode. (Lingering decodes are intentional: `copyCGImage` is not cancellable, so
     /// cancelling the shared task cannot save the expensive work — it can only throw the
-    /// result away from under another waiter.)
+    /// result away from under another waiter.) A decode that finishes after its item's
+    /// geometry changed — an editor commit landed mid-decode — drops its result instead
+    /// of caching: the cached image depicts the geometry it was decoded for.
     func thumbnail(for item: ClipListItem) async -> CGImage? {
         if let cached = thumbnails[item.id] {
             return cached
@@ -176,7 +192,14 @@ final class ClipListViewModel: ObservableObject {
         inFlight[item.id] = task
         let image = await task.value
         inFlight[item.id] = nil
-        if let image = image {
+        // Only the decode matching the item's current geometry may claim the cache:
+        // an editor commit may have landed (and evicted) mid-decode, and the stale
+        // frame must not overwrite the fresh one. The slot is always released — a
+        // newer decode already re-registered itself, so at worst a late third caller
+        // starts one duplicate decode.
+        let current = items.first(where: { $0.id == item.id })
+        if let image = image,
+           current?.window == item.window, current?.cropRect == item.cropRect {
             thumbnails[item.id] = image
         }
         return image

@@ -16,7 +16,7 @@ struct ClipListView: View {
     init(
         items: [ClipListItem],
         asset: AVAsset,
-        loader: ClipThumbnailLoader = ClipThumbnailLoader()
+        loader: any ClipThumbnailLoading = ClipThumbnailLoader()
     ) {
         _viewModel = StateObject(wrappedValue: ClipListViewModel(
             items: items, asset: asset, loader: loader))
@@ -111,6 +111,18 @@ private enum ClipListDestination: Hashable {
     case editor(UUID)
 }
 
+/// The `.task` identity for a card's thumbnail fetch: the geometry the thumbnail
+/// depicts, not the clip id. `ForEach` identity is the stable id, so a bare `.task`
+/// would fire once and leave the card's `@State` on the pre-edit frame after a
+/// trim/crop commit — the picture and the duration label would describe different
+/// clips. Keying on window + crop rect re-fires the fetch exactly when the depicted
+/// geometry changes; the view model evicts the stale cache entry in
+/// `applyEditorResult`, so the re-fired fetch decodes the new frame.
+private struct ClipThumbnailKey: Hashable {
+    let window: TrickWindow
+    let cropRect: NormalizedRect
+}
+
 /// One triage card: the clip's thumbnail (frame at the window midpoint, cropped to its
 /// crop rect), its duration, and the keep/discard toggle.
 ///
@@ -147,11 +159,14 @@ private struct ClipCardView: View {
             .padding(8)
             .accessibilityLabel(item.isKept ? "Discard clip" : "Keep clip")
         }
-        .task {
+        .task(id: ClipThumbnailKey(window: item.window, cropRect: item.cropRect)) {
             // Fetch the displayed-space placeholder ratio alongside the thumbnail. The
             // ratio is cached per asset, and the thumbnail shares one in-flight decode
             // per card — a `.task` re-fire joins the decode already running (or reads
-            // the cached image) instead of seeking the same frame a second time.
+            // the cached image) instead of seeking the same frame a second time. The
+            // task is keyed on the depicted geometry so a trim/crop commit re-fires it:
+            // the view model evicted the stale cache entry, and the card's `@State`
+            // must move to the new frame, not keep the old one.
             async let ratio = viewModel.placeholderAspectRatio(for: item)
             async let image = viewModel.thumbnail(for: item)
             placeholderRatio = await ratio
