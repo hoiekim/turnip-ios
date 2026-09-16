@@ -148,6 +148,69 @@ final class ClipListTests: XCTestCase {
         XCTAssertEqual(viewModel.items, [item])
     }
 
+    // MARK: - Thumbnail invalidation on editor commit
+
+    /// A loader that counts decodes and returns a fixed image, so the tests can
+    /// observe cache hits vs. misses without a video asset.
+    private actor CountingThumbnailLoader: ClipThumbnailLoading {
+        private(set) var calls = 0
+        let image: CGImage?
+
+        init(image: CGImage?) {
+            self.image = image
+        }
+
+        func thumbnail(for item: ClipListItem, in asset: AVAsset) async -> CGImage? {
+            calls += 1
+            return image
+        }
+    }
+
+    @MainActor
+    func testApplyEditorResultEvictsThumbnailWhenGeometryChanges() async {
+        let loader = CountingThumbnailLoader(image: Self.testImage(width: 4, height: 2))
+        let target = makeItem()
+        let viewModel = ClipListViewModel(items: [target], asset: dummyAsset(), loader: loader)
+
+        let first = await viewModel.thumbnail(for: target)
+        XCTAssertNotNil(first)
+        XCTAssertEqual(await loader.calls, 1)
+
+        // A trim commit changes the window: the cached frame (decoded at the old
+        // midpoint) must be evicted, so the next fetch decodes again.
+        viewModel.applyEditorResult(
+            ClipEditorResult(
+                window: TrickWindow(startTime: 4, endTime: 5),
+                cropRect: fullFrame,
+                isKept: true),
+            to: target.id)
+
+        let second = await viewModel.thumbnail(for: viewModel.items[0])
+        XCTAssertNotNil(second)
+        XCTAssertEqual(await loader.calls, 2)
+    }
+
+    @MainActor
+    func testApplyEditorResultKeepsThumbnailWhenOnlyKeepStateChanges() async {
+        let loader = CountingThumbnailLoader(image: Self.testImage(width: 4, height: 2))
+        let target = makeItem()
+        let viewModel = ClipListViewModel(items: [target], asset: dummyAsset(), loader: loader)
+
+        let first = await viewModel.thumbnail(for: target)
+        XCTAssertNotNil(first)
+        XCTAssertEqual(await loader.calls, 1)
+
+        // A keep/discard commit leaves the geometry alone: no eviction, no
+        // re-decode — the card keeps its cached thumbnail.
+        viewModel.applyEditorResult(
+            ClipEditorResult(window: target.window, cropRect: target.cropRect, isKept: false),
+            to: target.id)
+
+        let second = await viewModel.thumbnail(for: viewModel.items[0])
+        XCTAssertNotNil(second)
+        XCTAssertEqual(await loader.calls, 1)
+    }
+
     @MainActor
     func testEditorSourceCarriesTheItemAndAsset() {
         let asset = dummyAsset()

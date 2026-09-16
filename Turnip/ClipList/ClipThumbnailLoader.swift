@@ -10,7 +10,15 @@ import Foundation
 /// regression (it was a real past fix). `AVAsset` crosses into this actor from the
 /// main-actor view; the crossing is narrow and read-only — the generator seeks and copies
 /// one frame, and the asset is never mutated or stored.
-actor ClipThumbnailLoader {
+/// The card-thumbnail loading seam: the single method the triage list needs.
+/// Extracted as a protocol so tests can count and stub decodes without a video
+/// asset; the production loader stays an actor so frame decoding never runs on
+/// the main thread.
+protocol ClipThumbnailLoading: Sendable {
+    func thumbnail(for item: ClipListItem, in asset: AVAsset) async -> CGImage?
+}
+
+actor ClipThumbnailLoader: ClipThumbnailLoading {
     /// Loads the thumbnail for `item` from `asset`.
     ///
     /// The generator returns the displayed (upright) frame, so the crop below is computed
