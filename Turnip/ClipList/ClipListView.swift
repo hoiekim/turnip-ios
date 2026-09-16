@@ -171,7 +171,12 @@ private struct ClipCardView: View {
                     thumbnailView
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Play clip")
+                // The UI-test screenshot harness waits on this label to prove the
+                // thumbnail fallback actually engaged (the nav bar alone appears
+                // whether or not the decode failed). The placeholder's own label
+                // inside `thumbnailView` is swallowed by the Button, so the Button
+                // carries it while the fallback is showing.
+                .accessibilityLabel(thumbnail == nil ? "Thumbnail placeholder" : "Play clip")
 
                 HStack(spacing: 0) {
                     // A real NavigationLink (not a Button driving state): the
@@ -254,10 +259,6 @@ private struct ClipCardView: View {
                 .fill(.quaternary)
                 .aspectRatio(placeholderRatio ?? encodedSpaceRatio, contentMode: .fit)
                 .overlay { ProgressView() }
-                // The UI-test screenshot harness waits on this label to prove the
-                // thumbnail fallback actually engaged (the nav bar alone appears
-                // whether or not the decode failed).
-                .accessibilityLabel("Thumbnail placeholder")
         }
     }
 
