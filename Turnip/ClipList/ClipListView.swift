@@ -9,14 +9,15 @@ import UIKit
 /// than static frames, draws a read-only timeline over the bottom showing where its
 /// window sits in the full source video (not adjustable here — that's what the
 /// editor is for, and the original tile has none since its window is the whole
-/// video), and carries the trash button. Tapping a derived clip's tile opens the
-/// full `ClipEditorView` directly — "view large" and "edit" are the same entry
-/// point, not a separate icon; the original tile isn't tappable, since editing the
-/// source video isn't a thing this screen does.
+/// video), carries the trash button, and marks a clip already written to Photos with
+/// a checkmark badge. Tapping a derived clip's tile opens the full `ClipEditorView`
+/// directly — "view large" and "edit" are the same entry point, not a separate icon;
+/// the original tile isn't tappable, since editing the source video isn't a thing this
+/// screen does.
 ///
-/// "Done" exports and saves every non-trashed derived clip to Photos, deletes the
-/// original from Photos if its tile was trashed, and pops back to Home — there is no
-/// separate export/confirmation screen.
+/// "Done" exports and saves every non-trashed, not-yet-saved derived clip to Photos,
+/// deletes the original from Photos if its tile was trashed, and pops back to Home —
+/// there is no separate export/confirmation screen.
 ///
 /// An analysis that detected zero tricks still lands here — the original tile and the
 /// "+" tile, same as any other triage — rather than on a dead-end screen of its own;
@@ -238,10 +239,12 @@ private struct AddClipTile: View {
 
 /// One triage tile: a square clip surface (an autoplay-looping preview layered over its
 /// poster thumbnail, so there's no blank flash while the loop's player becomes ready)
-/// with the trash button at the top-trailing corner and, for a derived clip, a
-/// read-only range timeline overlaid on the bottom edge — siblings drawn as overlays
-/// on the tap-driven media layer rather than nested inside a shared `Button`, so each
-/// keeps its own hit target instead of racing the tile's tap.
+/// with the trash button at the top-trailing corner, the saved badge at the top-leading
+/// corner once the clip's video is in Photos, and, for a derived clip, a read-only range
+/// timeline overlaid on the bottom edge — siblings drawn as overlays on the tap-driven
+/// media layer rather than nested inside a shared `Button`, so the trash button keeps
+/// its own hit target instead of racing the tile's tap. The badge wants the opposite and
+/// opts out of hit testing, having no action of its own.
 ///
 /// Drives its own `ClipCardPlayback` rather than sharing one across the grid: every
 /// visible tile loops simultaneously, which a single shared player can't do. `LazyVGrid`
@@ -349,6 +352,7 @@ private struct ClipCardView: View {
         }
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(alignment: .topLeading) { savedBadge }
         .overlay(alignment: .topTrailing) { trashButton }
         .overlay(alignment: .bottom) { trimOverlay }
         .opacity(item.isTrashed ? 0.4 : 1)
@@ -382,6 +386,31 @@ private struct ClipCardView: View {
 
     /// The diameter every top-corner icon circle renders at.
     private static let iconButtonDiameter: CGFloat = 28
+
+    /// Marks a clip whose video is already in Photos. Only ever visible after a Done that
+    /// partially failed, which leaves the screen up on a mix of landed and still-missing
+    /// clips: a retried Done re-saves only the unmarked ones, and which those are is
+    /// otherwise invisible to someone looking at the grid.
+    @ViewBuilder
+    private var savedBadge: some View {
+        if item.isSaved {
+            ZStack {
+                Circle().fill(Color.green)
+                Image(systemName: "checkmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: Self.iconButtonDiameter, height: Self.iconButtonDiameter)
+            .padding(6)
+            // Decorative, unlike the trash button beside it: as a hit-testable overlay
+            // sibling it would shadow the tile's own tap over the corner it occupies,
+            // and that corner is the one the badge itself draws the eye to. Opting out
+            // of hit testing leaves the accessibility element below untouched.
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Saved to Photos")
+        }
+    }
 
     /// The per-tile trash button: a solid red circle while trashed, the same
     /// semi-transparent grey circle the other tile buttons use otherwise. For the
