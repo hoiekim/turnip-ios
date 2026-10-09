@@ -92,8 +92,8 @@ struct ProcessingView<Destination: View>: View {
     @State private var player: AVPlayer?
     /// The frame size as the player shows it (display orientation), loaded once in
     /// `.task` alongside the player — this view owns the player, so it owns the geometry
-    /// the pose overlay needs to land on it too. Same computation as
-    /// `ClipEditorViewModel.displayedSize`/`PoseDiagnosticViewModel.displaySize`.
+    /// the pose overlay needs to land on it too. Same computation as the shared
+    /// `CGSize.displayed(through:)` helper the editor, list, and exporter use.
     @State private var displaySize: CGSize?
     /// Seek coalescing for the progress-driven scrub: `ProgressReportClock` fires up to
     /// 10 times a second, and issuing an exact-tolerance seek per report would queue up
@@ -259,8 +259,7 @@ struct ProcessingView<Destination: View>: View {
                let track = try? await video.asset.loadTracks(withMediaType: .video).first,
                let naturalSize = try? await track.load(.naturalSize),
                let preferredTransform = try? await track.load(.preferredTransform) {
-                displaySize = ClipEditorViewModel.displayedSize(
-                    naturalSize: naturalSize, preferredTransform: preferredTransform)
+                displaySize = naturalSize.displayed(through: preferredTransform)
             }
             if autostart {
                 viewModel.start(video: video)
