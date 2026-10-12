@@ -13,7 +13,7 @@ trick-detection model. It does not change the v1 screens or flows in
 
 **Authority.** The contract this doc implements is the
 [Turnip Farm + ML Master Plan](https://github.com/hoiekim/turnip-farm/blob/main/docs/MASTER_PLAN.md)
-(Rev 3). Companion docs: the farm's forthcoming `BACKEND_DESIGN.md` and
+(Rev 4). Companion docs: the farm's forthcoming `BACKEND_DESIGN.md` and
 `POSE_FORMAT.md` (the wire-format authority; until they land, master plan §3 is
 the pose format spec), and `turnip-ml`'s `MODEL_CONTRACT.md` (the trick-model
 input/output authority). Where this doc makes a call the master plan
@@ -85,10 +85,11 @@ so every downstream screen can reference it without recomputing.
   feature.
 - **Cross-user collision on identical imports**: two users importing the
   byte-identical file compute the identical `source_id` (master plan §1
-  caveat). Farm writes are owner-scoped and source ownership is
-  first-writer-wins — a second user registering an already-claimed
-  `video_id` receives `409 SOURCE_ALREADY_CLAIMED`, so nobody can
-  overwrite another user's source row. The collision is what gives the
+  caveat). Farm writes require the source's key (§5.4) and source
+  ownership is first-writer-wins — a second user registering an
+  already-claimed `video_id` without its key receives
+  `409 SOURCE_ALREADY_CLAIMED`, so nobody can overwrite another user's
+  source row. The collision is what gives the
   dedup side-benefit on re-contribution.
 
 ---
@@ -199,6 +200,15 @@ can never be confirmed.
   placement: a sheet keeps the v1 Save Clips flow untouched — Save
   Clips saves to Photos, Contribute sends to the farm. The exact
   affordance is UI polish; the boundary semantics are not.)*
+- The sheet also carries the disclosure the farm requires
+  (`BACKEND_DESIGN.md` §7.1):
+  - contributions stay linked to the user's account for 30 days after
+    their last edit, then are kept without any link to it;
+  - deleting the account removes every contribution this app can still
+    find, and the rest can't be traced back to the user and remain in
+    the training data;
+  - contribute only clips of yourself, or of people who agreed: the
+    person in a clip may not be the account holder.
 - The label editor (§4) requires at least one trick name per contributed
   clip; a clip with no names cannot be confirmed (inline hint in the
   sheet).
@@ -253,13 +263,18 @@ shape (an array of names) is unchanged by that choice.
 
 ### 5.1 Payload and endpoints
 
-On Confirm (per-clip opt-in, §3.3), with Sign in with Apple session
-(the v1 export flow stays anonymous; contribution is the first
-authenticated action — the sheet prompts sign-in when needed):
+On Confirm (per-clip opt-in, §3.3), with a farm session (§5.4). The v1
+export flow stays anonymous; contribution is the first authenticated
+action, and the sheet prompts sign-in when needed. Every contribution
+request also carries the source's key (§5.4).
 
-1. `POST /api/sources` with `{video_id, frame_count, sample_rate,
-   keypoint_format: "tkp1", sha256}` → `{source_id, r2_key,
-   upload_url, upload_expires_at, blob_present}`.
+1. `POST /api/sources` with `{video_id, source_key, frame_count,
+   sample_rate, keypoint_format: "tkp1"}` → `{source_id, r2_key,
+   upload_url, upload_expires_at, blob_present}`. The client never
+   sends a blob digest; the farm computes the stored digest at ingest.
+   `409 SOURCE_ALREADY_CLAIMED` means the video is already contributed
+   under another key (a byte-identical import from someone else, or
+   this app's key was lost); the clip stays local-only.
    - `frame_count` / `start_frame` / `end_frame` are indices into the
      **canonical 10 Hz** sequence. The client maps its analysis-rate
      indices through the POSE_FORMAT.md §6 resampling map — the same mapping §7.2
@@ -267,7 +282,7 @@ authenticated action — the sheet prompts sign-in when needed):
      training, and model output all share one coordinate space.
 2. `PUT` the pose-format blob to `upload_url` (full source pose sequence,
    once per `source_id`; skipped when `blob_present` is true).
-3. `POST /api/clips` with `{clips: [{clip_id, source_id,
+3. `POST /api/clips` with `{clips: [{clip_id, source_id, source_key,
    start_frame, end_frame, auto_detected, labels: [...]}]}` — batch
    upsert. The farm verifies the blob SHA-256, upserts the clips, and
    replaces each clip's label set atomically.
@@ -276,8 +291,8 @@ authenticated action — the sheet prompts sign-in when needed):
      every re-contribution, and recovered from the server after
      reinstall (§6).
 
-Label-only edits later use `POST /api/clips/:id/labels` — no blob
-re-upload.
+Label-only edits later use `POST /api/clips/:id/labels` with the
+source's key — no blob re-upload.
 
 ### 5.2 Upsert semantics
 
@@ -307,6 +322,38 @@ re-confirmation safe and idempotent.
   Whether the farm should add `DELETE /api/clips/:id` is an open
   question for the farm API doc.
 
+### 5.4 Sign-in, source keys, and account deletion
+
+The client half of `BACKEND_DESIGN.md` §7.1. Contributions are owned
+through keys, not through the account, so the farm keeps no lasting
+record of whose a contribution is.
+
+- **Sign-in.** Generate a random raw nonce per attempt, and set
+  `ASAuthorizationAppleIDRequest.nonce` to its lowercase hex SHA-256.
+  Send the raw nonce, `identityToken`, and `authorizationCode` to
+  `POST /api/auth/apple` right away (the code is single-use and valid
+  five minutes). Store the returned session token in the Keychain
+  (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, so background
+  uploads can read it) and send it as `Authorization: Bearer` on every
+  call.
+- **Session checks.** On launch, call `getCredentialState(forUserID:)`.
+  On `.revoked` or `.notFound`, call `POST /api/auth/signout`, delete
+  the session token, and show the signed-out state; also observe
+  `credentialRevokedNotification`. On any `401`, delete the token and
+  sign in again.
+- **Source keys.** The first time a source is contributed, generate 32
+  random bytes as its key and store it in the Keychain under its
+  `video_id`, with the same accessibility as the session token. The key
+  goes with every request about that source. Keychain items survive
+  app deletion and reinstall on current iOS, but Apple doesn't
+  guarantee it, so a missing key is an expected state: the source is
+  contributed but unmanageable from this install.
+- **Account deletion** (Settings): delete every source the app holds a
+  key for (`DELETE /api/sources/:id`), call `DELETE /api/account`, then
+  delete the local keys and session token. Before confirming, repeat the
+  §3.3 disclosure: contributions this app can no longer find stay in
+  the training data, unlinked from the account.
+
 ---
 
 ## 6. Reinstall reconciliation
@@ -316,33 +363,39 @@ re-confirmation safe and idempotent.
 On fresh install — auto-run once after Photos permission is granted,
 plus a "Restore contributions" row in Settings for later:
 
-1. Enumerate video `PHAsset`s (respecting limited-access grants) and
-   recompute `source_id` per §1.1.
-2. `GET /api/sources` — list my sources (id, frame_count, clip/label
-   counts, updated_at). Match by ID.
-3. For each match, `GET /api/sources/:id` — pull confirmed clips +
-   labels and **adopt the server's clip IDs** into the rebuilt local
-   store (clip IDs are recovered, never recomputed).
+1. Read the source keys left in the Keychain (§5.4); each is stored
+   under its `video_id`. The farm keeps no list of a user's sources,
+   so these keys are the record of what this app contributed.
+2. Enumerate video `PHAsset`s (respecting limited-access grants) and
+   recompute `source_id` per §1.1. Match against the keys by ID.
+3. For each match, `GET /api/sources/:id` with its key — pull confirmed
+   clips + labels and **adopt the server's clip IDs** into the rebuilt
+   local store (clip IDs are recovered, never recomputed).
 4. Rebuild local clip state (windows + labels). If the video is still
    in the library, pose can be re-derived locally on demand; if not,
    skeleton previews render from the pose blob via
    `GET /api/sources/:id/pose` (owner-only presigned R2 GET) —
    keypoints straight to screen, no video needed.
 
-Sign-in is required throughout (all endpoints are owner-scoped).
+A session and the source's key are required throughout
+(`BACKEND_DESIGN.md` §7.2).
 
 ### 6.2 Videos deleted from the library
 
 Their server data stays — it remains valid training data. The client
 cannot relink what it cannot see. *(Judgment call: the reconciliation
-UI lists matched sources normally, and groups unmatched server sources
-under "no longer on this device" with clip/label counts and a
-delete-from-server action (`DELETE /api/sources/:id`).)*
+UI lists matched sources normally. Keys whose video is no longer in
+the library are grouped under "no longer on this device"; their
+clip/label counts come from `GET /api/sources/:id` with the key, and
+each has a delete-from-server action (`DELETE /api/sources/:id`).)*
 
 ### 6.3 Multi-device
 
-Same Apple account on a second device runs the same flow; clips and
-labels restore, the video stays behind (master plan open question #2 —
+Source keys stay on the device that contributed
+(`ThisDeviceOnly`), and a `video_id` from one device's Photos library
+doesn't resolve on another. A second device signed in to the same
+Apple account therefore restores nothing; contributions are managed
+from the device that made them (master plan open question #2 —
 accepted for v1).
 
 ---
@@ -402,8 +455,12 @@ confirmation, §3.3):
   no identity (residual honesty per the master plan: gait-from-keypoints
   re-identification is real research; minimization is the mitigation)
 - confirmed clip windows + free-text trick names
-- Sign in with Apple subject — per-app opaque pseudonym, for
-  attribution and quarantine
+- Sign in with Apple subject — per-app opaque pseudonym, for sign-in,
+  rate limiting, and blocking. The farm links it to a contribution
+  only until 30 days after the contribution's last edit (anti-poisoning
+  attribution), then the contribution has no account link.
+- Source key — random per-source secret proving ownership; the farm
+  stores only its hash
 
 **Local hygiene** (extends `PRIVACY.md`'s temp-file rules):
 `tmp/turnip-pose-<source_id>.tkp1.gz` blobs are deleted after upload
@@ -412,8 +469,9 @@ in-memory only; nothing is written to `Documents/`.
 
 **Submission-time consequences** (open question): the v1 "Data Not
 Collected" nutrition label changes the moment contribution ships. The
-new disclosures must cover the Apple `sub` identifier and the pose
-keypoints; the precise App Store label taxonomy for pose keypoints
+new disclosures must cover the Apple `sub` identifier, its 30-day link
+to contributions, and the pose keypoints; the precise App Store label
+taxonomy for pose keypoints
 needs a call at submission time. `ITSAppUsesNonExemptEncryption` stays
 `NO` (HTTPS only, exempt).
 

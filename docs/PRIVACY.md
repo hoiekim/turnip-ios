@@ -166,7 +166,15 @@ Revisit only if non-exempt encryption or non-HTTPS networking is introduced.
 
 - Server-side data handling for uploaded clips (retention, deletion
   requests, GDPR/CCPA) — belongs to `turnip-farm`; see `docs/DESIGN.md`
-  decision #4 (retention: keep forever, user-deletable).
+  decision #4 (retention: keep forever, user-deletable). In outline:
+  - Contributions are linked to the account only until 30 days after
+    their last edit, then kept with no account link.
+  - The account can be deleted in-app; that removes every contribution
+    the app still holds a key for.
+  - The contribution sheet discloses both, and asks users to contribute
+    only clips of themselves or of people who agreed (`turnip-farm`
+    `BACKEND_DESIGN.md` §1.2.17, §7.1, §8; `CONTRIBUTION_DESIGN.md` §5.4).
+  - `site/privacy.html` needs the same update when contribution ships.
 - Analytics / crash-reporting consent — `docs/DESIGN.md` decision #7:
   none in v1; crash/hang metrics arrive Apple-mediated under the user's
   own opt-in.
