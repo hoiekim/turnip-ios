@@ -463,11 +463,12 @@ rendering is a required-reason API (PRIVACY.md).
 
 ## 9. Contribution and impact feedback
 
-- **Contributing from the library (Phase 2b).** The Clip view's
-  Contribute toggle and a "Contribute named clips" action on the
-  Profile page feed `CONTRIBUTION_DESIGN.md`'s flow, which uploads the
-  library's stored pose and each clip's names and provenance. Nothing
-  in the Profile depends on it.
+- **Contributing (Phase 2b).** A per-clip contribute toggle on Name
+  Clips (UIUX §3a) and on the Clip view, and a "Contribute named clips"
+  action on the Profile page, feed `CONTRIBUTION_DESIGN.md`'s flow
+  (§3.3), which uploads the library's stored pose and each clip's names
+  and provenance. Clip List and the Clip Editor carry no contribution
+  controls. Nothing in the Profile depends on contributing.
 - **Asking.** At most one dismissible card on the Profile page, never a
   modal, and not again for a week once dismissed. *(Judgment call.)*
 - **Impact feedback (Phase 3).** What closes the loop for the user:

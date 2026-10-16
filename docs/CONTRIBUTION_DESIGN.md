@@ -181,12 +181,13 @@ The flow rides the existing screens from `UIUX.md`:
   List.
 - **Clip List (§3, triage)** — proposals appear as derived clip tiles
   exactly as the heuristic's do today. The "+" tile, trash toggles, and
-  read-only timelines are unchanged.
+  read-only timelines are unchanged, and no contribution control is
+  added: the screen is already full.
 - **Clip Detail / Editor (§4)** — window trimming via the scrub-bar
   handles and crop editing are unchanged.
 - **Name Clips** (`UIUX.md` §3a, `PROFILE_DESIGN.md` §4) — the step
   between Clip List and the save where clips are named, contributed or
-  not.
+  not. Each clip there also carries its contribute toggle (§3.3).
 - **The Profile's Clip view** (`PROFILE_DESIGN.md` §5.2) — a saved
   clip's contribute toggle, and a "Contribute named clips" action on
   the Profile page, for clips saved before the user chose to
@@ -206,17 +207,23 @@ Confirmation is the farm boundary: **only confirmed clips + labels are
 uploaded; nothing else ever is.** Trashed clips and the original tile
 can never be confirmed.
 
-- Each derived tile in Clip List, and each saved clip's Clip view in the
-  Profile, gains a **contribute toggle** (persisted in the clip library,
-  default off). Toggling is per-clip opt-in.
-- A **"Contribute N clips"** action in Clip List's toolbar, or the
-  Profile's "Contribute named clips", opens a confirmation sheet
-  listing the clips with their trick-name chips, the payload summary
-  ("pose keypoints, clip windows, labels — video never leaves your
-  device"), and a Confirm button. *(Judgment call on
-  placement: a sheet keeps the v1 Save Clips flow untouched — Save
-  Clips saves to Photos, Contribute sends to the farm. The exact
-  affordance is UI polish; the boundary semantics are not.)*
+- Each clip on Name Clips, and each saved clip's Clip view in the
+  Profile, gains a **contribute toggle** ("Contribute this clip",
+  persisted in the clip library, default off, disabled until the clip
+  has a name). Toggling is per-clip opt-in. Clip List and the Clip
+  Editor get none.
+- The **confirmation sheet** opens in two ways: by itself when the user
+  finishes Name Clips with any clip toggled — once the save has
+  finished, so saving and contributing stay separate steps — or from
+  the Profile's **"Contribute named clips"**, a list of named clips not
+  yet contributed, each chosen individually. The sheet lists the clips
+  with their trick-name chips, the payload summary ("pose keypoints,
+  clip windows, labels — video never leaves your device"), and a
+  Confirm button. Cancelling sends nothing; the clips stay saved and
+  can be contributed later from the Profile. *(Judgment call on
+  placement: contribution never sits on Clip List or the editor, which
+  are already full. The exact affordance is UI polish; the boundary
+  semantics are not.)*
 - The sheet also carries the disclosure the farm requires
   (`BACKEND_DESIGN.md` §7.1):
   - contributions stay linked to the user's account for 30 days after

@@ -114,6 +114,8 @@ screen's PR rather than retrofitting later.
   announced with their position ("gainer, suggestion 1 of 3").
 - The me / someone-else control announces its state as a value ("Who's in this clip: me"),
   never color alone.
+- The contribute toggle is a labeled switch ("Contribute this clip"); while disabled it says
+  why ("Name the clip first") rather than only dimming.
 - The looping clip follows Clip List's rule: no auto-playing loop under Reduce Motion or
   with video autoplay off.
 

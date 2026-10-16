@@ -445,7 +445,8 @@ default empty state, so it never reads as "your library is empty."
   save also writes each saved clip, its saved Photos asset and the video's
   pose to the on-device clip library the Profile reads. With no derived clip
   left to name (every one trashed), the button reads "Save Clips" as today
-  and the secondary is not shown. The tiles are unchanged.
+  and the secondary is not shown. The tiles are unchanged, and no
+  contribution control is added here.
 - The back chevron pops to Home, not to Processing; the title sits centered
   inline on the same line as the chevron, Photos-app style. The chevron is
   the same glass circle every other screen's chevron is (`ScrimIconButton`),
@@ -473,7 +474,10 @@ default empty state, so it never reads as "your library is empty."
     trick vocabulary as the user types; once the trick model ships, the names
     it is confident in arrive already filled in;
   - who's in it — me (default) or someone else. The first clip's choice
-    carries to the rest of the video's clips; any clip can change it.
+    carries to the rest of the video's clips; any clip can change it;
+  - once contribution ships, a "Contribute this clip" toggle, off by
+    default and disabled until the clip has a name
+    ([`CONTRIBUTION_DESIGN.md`](CONTRIBUTION_DESIGN.md) §3.3).
 - A counter in the header ("2 of 4") and horizontal paging: a swipe left goes
   to the next clip, a swipe right to the previous one, and the "Next" button
   plays the same slide (see "A gesture and its button play one animation").
@@ -488,7 +492,9 @@ default empty state, so it never reads as "your library is empty."
   names also in its exported file, and pops to Home. Under the button, from
   the first clip on, a quieter "Save now" (`PrimaryActionBar`'s secondary)
   saves at once and leaves the clips not reached yet unnamed, so a long take
-  never costs a row of Skips. *(Judgment call.)*
+  never costs a row of Skips. *(Judgment call.)* If any clip was toggled
+  to contribute, the contribution confirmation sheet opens once the save
+  has finished, before Home; cancelling it sends nothing.
 - When the name field has focus, the field and its chips ride above the
   keyboard and the clip shrinks to fit the space above them; this screen has
   no crop marker to hold in place.
