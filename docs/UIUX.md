@@ -1,5 +1,12 @@
 # Turnip — UI/UX Flow (v1 MVP)
 
+*Rev 14 · 2026-10-15 · Planned, not built: the root pager gains a third
+page, Profile ([`PROFILE_DESIGN.md`](PROFILE_DESIGN.md)), reached by
+swiping left from Home or by a third icon on the floating bar; Clip List
+and the Clip Editor gain trick names and a "who's in this video" control;
+and Save Clips writes what it saves to an on-device clip library. The
+Profile's own screens are specified in its design doc, not here.*
+
 *Rev 13 · 2026-10-09 · A clip added by hand has no pose analysis, so its
 crop button is "Reset crop" alone — disabled on the whole frame, enabled
 once a pinch or drag has moved the framing — instead of an Auto crop that
@@ -12,7 +19,7 @@ and stays sharp only inside the marker, with the controls on top of the
 glass. The expansion flight shows the crop alone; the frosted frame around it
 appears once the flight lands.*
 
-*(Rev 1 established the five-screen flow and made Home a Photos video gallery. Rev 2 resolves the three open questions into decisions. Rev 3 adds the Settings screen this doc previously scoped out. Rev 4 adds the expansion transition, with the *how* in its own companion doc. Rev 5 adds "A gesture and its button play one animation." Rev 6 replaces the Clip Editor's "Reset crop area" with Auto crop and Auto rotate. Rev 7 adds "An automatic change moves, it never cuts." Rev 8 stops trimming from re-cropping. Rev 9 tightens Auto crop's padding and keeps its crop inside the video. Rev 10 applies that to detection's rects. Rev 11 levels by the take's own roll track, with the picture's horizon as the fallback, and makes Auto crop / Auto rotate toggles with a reset. Rev 12 frosts the editor's surround. Rev 13 gives a hand-added clip Reset crop in place of Auto crop.)*
+*(Rev 1 established the five-screen flow and made Home a Photos video gallery. Rev 2 resolves the three open questions into decisions. Rev 3 adds the Settings screen this doc previously scoped out. Rev 4 adds the expansion transition, with the *how* in its own companion doc. Rev 5 adds "A gesture and its button play one animation." Rev 6 replaces the Clip Editor's "Reset crop area" with Auto crop and Auto rotate. Rev 7 adds "An automatic change moves, it never cuts." Rev 8 stops trimming from re-cropping. Rev 9 tightens Auto crop's padding and keeps its crop inside the video. Rev 10 applies that to detection's rects. Rev 11 levels by the take's own roll track, with the picture's horizon as the fallback, and makes Auto crop / Auto rotate toggles with a reset. Rev 12 frosts the editor's surround. Rev 13 gives a hand-added clip Reset crop in place of Auto crop. Rev 14 plans the Profile page and naming in the clip flow.)*
 
 Companion to [`DESIGN.md`](DESIGN.md), which specifies the auto-edit *pipeline*
 (pose detection → motion signal → peak detection → crop rect → export), and to
@@ -23,7 +30,11 @@ works — this doc only specifies *that* it happens. This doc specifies the
 recording" to "clips are in my Photos library," and is scoped to v1
 (auto-clip + auto-crop, iOS-only, on-device). It does not cover v2 (community
 labeling, following/feed) — those get their own flow notes once the v1 screens
-exist and v2 work starts. OTA model updates were scoped here as v2 and have
+exist and v2 work starts. The first of them is the Profile tab, whose screens
+live in [`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §5–§8; this doc carries only
+what it changes on v1 screens, each marked *Planned*: the root pager's third
+page, names on Clip List's tiles and in the editor, and Save Clips writing to
+the clip library. OTA model updates were scoped here as v2 and have
 since been built ahead of that; see "Built ahead of this doc" below.
 
 ## Why this doc exists
@@ -67,6 +78,8 @@ Where it applies today:
 | Home ↔ Camera (Root navigation) | Horizontal page swipe | Floating bar's camera / gallery icons; Camera's cancel chevron | The pager's horizontal slide (`RootTabView.slide(to:)`) |
 | Tile ↔ Processing (§1, §2) | Swipe down anywhere on the page | Back chevron | The tile's expansion card shrinking back into the tile ([`EXPANSION_TRANSITIONS.md`](EXPANSION_TRANSITIONS.md)) |
 | Clip List tile ↔ Clip Editor (§3, §4) | Swipe down above the crop marker | Back chevron | Same, with the card showing the editor's own player |
+| *Planned:* Home ↔ Profile (Root navigation) | Horizontal page swipe | Floating bar's gallery / profile icons | The pager's horizontal slide (`RootTabView.slide(to:)`) |
+| *Planned:* Profile clip tile ↔ Clip view ([`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §5.2) | Swipe down | Back chevron | The tile's expansion card, showing the clip's own player |
 
 Not every state change has a gesture counterpart that it owes an animation.
 A recording that finishes on Camera switches to Home *instantly*, because the
@@ -122,6 +135,8 @@ flowchart TD
     A[Home / Video Gallery] -->|tap a video tile| B[Processing]
     A -->|tap camera icon / swipe right| G[Camera]
     G -->|tap gallery icon / swipe left| A
+    A -.->|planned: tap profile icon / swipe left| P[Profile]
+    P -.->|planned: tap gallery icon / swipe right| A
     G -->|recording saved, analyzed live| C
     G -->|recording saved, live analysis incomplete| B
     B -->|clips found, or none| C[Clip List]
@@ -175,6 +190,18 @@ Processing/ClipList/ClipEditor — a tap flies the tile into the full-screen
 destination rather than pushing it (see "Tapping a tile" below and
 [`EXPANSION_TRANSITIONS.md`](EXPANSION_TRANSITIONS.md)) — each of which owns
 the full screen and its own back chevron, reappearing once back at the grid.
+
+*Planned — a third page* ([`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §5): the
+pager becomes Camera | Home | Profile, with Profile the page after Home, so a
+left swipe on Home reveals it the way a right swipe reveals Camera. The pill
+gains a third icon after the gallery icon, and the selection pill slides
+across all three. A tap on the profile icon pages through the same
+`slide(to:)` the swipe drives, so the button plays the swipe's motion. Home
+stays the default page. Screens pushed from Profile — an achievement, a
+trick's gallery, a highlight, a clip — hide the pill and own the full screen
+like Processing/ClipList/ClipEditor do, and `PageSwipeLock` switches the pager
+off while one is open, for the same reason it does over Home: the pager would
+otherwise take every horizontal drag first.
 
 ### 1. Home / Video Gallery
 
@@ -401,6 +428,14 @@ default empty state, so it never reads as "your library is empty."
   confirmed it saved — a clip that fails leaves the original alone and shows
   an alert naming the failure, so Save Clips can be retried without risking the
   user's only copy of a trick that never actually saved.
+- *Planned* ([`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §2.3, §4): each derived
+  tile shows its clip's trick names as a caption along its bottom edge, above
+  the timeline; a clip with none shows nothing there. One control in the
+  screen's bottom bar, beside Save Clips, sets who is in the video — me
+  (default) or someone else — for all of its clips. Save Clips also writes
+  every clip it saved, with its saved Photos asset, its names and the video's
+  pose, to the on-device clip library the Profile reads; it never blocks on a
+  clip having no name.
 - The back chevron pops to Home, not to Processing; the title sits centered
   inline on the same line as the chevron, Photos-app style. The chevron is
   the same glass circle every other screen's chevron is (`ScrimIconButton`),
@@ -503,6 +538,16 @@ default empty state, so it never reads as "your library is empty."
     photo/video trim gesture): near the track it tracks the touch 1:1; drag
     away and the same finger movement moves it a smaller fraction of the way,
     for fine control. Moving back to the track snaps to full speed again.
+  - *Planned* — a "Trick name" section below the scrub bar
+    ([`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §4): a free-text field ("What
+    trick is this? e.g. cork") that commits each name as a removable chip, a
+    clip taking several for a combo; suggestions from the trick vocabulary
+    while typing, names already used on this video first; and a me / someone
+    else toggle overriding Clip List's choice for this clip. When the field
+    has focus it rides just above the keyboard, the way a message composer
+    does, and the rest of the layout stays put: the marker keeps its size
+    and its place on screen, as everywhere else in the editor, even where
+    the keyboard overlaps the frame below it.
   - A Delete button at the top-right corner removes the clip from the list
     entirely — the same removal the list's own trash button already performs
     on a derived clip's tile (§3). Trashing stays a reversible toggle only
@@ -528,7 +573,12 @@ default empty state, so it never reads as "your library is empty."
 
 - Accessibility acceptance criteria per screen — those live in
   [`ACCESSIBILITY.md`](ACCESSIBILITY.md) (issue #22) and are checked on each screen's PR.
-- Community upload opt-in — v2, layered onto this flow later.
+- Community upload opt-in — v2, layered onto this flow later
+  ([`CONTRIBUTION_DESIGN.md`](CONTRIBUTION_DESIGN.md)).
+- The Profile tab's own screens — Needs a name, achievements, the gallery by
+  trick, highlights, the Clip view — live in
+  [`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §5–§8; this doc carries only the
+  v1-screen changes marked *Planned*.
 - Further Settings options beyond the four §1a covers — aspect ratio, buffer
   duration, and whatever else a future issue asks for stay out of scope until
   one does; the per-clip crop/trim adjustment in Clip Detail's drag handles

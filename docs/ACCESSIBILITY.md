@@ -101,6 +101,32 @@ screen's PR rather than retrofitting later.
   as the spinner leaving. **Not yet met:** a failure raises the "Couldn't save clips" alert,
   but a successful save is not announced.
 
+### Naming in Clip List and the editor (planned — `PROFILE_DESIGN.md` §4)
+
+- A tile's trick names join its picture's label ("Open clip, gainer, cork") rather than
+  being a separate element, so VoiceOver hears what the clip is before opening it.
+- The editor's trick-name field is labeled "Trick name"; each chip is one element with a
+  "Remove" action (`accessibilityAction(named:)`), not a tiny × target; suggestions are
+  buttons announced with their position ("gainer, suggestion 1 of 3").
+- The me / someone-else control announces its state as a value ("Who's in this video: me"),
+  never color alone.
+
+### Profile (planned — `PROFILE_DESIGN.md` §5–§8)
+
+- Reached by the floating bar's profile icon (`accessibilityLabel` "Profile") as well as
+  the page swipe, so it never depends on a gesture.
+- Each achievement card is one element: "Gainer, level 2, 7 of 10 sessions to level 3",
+  `.isButton`. Progress bars carry the same figures as `accessibilityValue`; the bar's fill
+  is never the only signal.
+- An achievement reached is announced once, when it is earned, not on every visit.
+- Gallery tiles follow Clip List's rules: one element per tile, no auto-playing loops under
+  Reduce Motion or with video autoplay off.
+- Highlights: no autoplay under Reduce Motion; a side-by-side "then and now" reads as one
+  element naming both dates ("Gainer, March 2025 and September 2026"); locked highlights
+  read what they are missing ("Locked: name one more gainer from before April").
+- Stable identifiers: `profile-tab`, `needs-a-name`, `achievement-<trick>-<kind>`,
+  `gallery-trick-<trick>`, `highlight-<kind>`, `clip-view`.
+
 ## Cross-cutting rules (every v1 screen)
 
 - **Dynamic Type**: all text uses text styles (`.body`, `.caption`, …), no fixed point
