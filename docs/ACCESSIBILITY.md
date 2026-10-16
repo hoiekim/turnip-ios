@@ -101,15 +101,21 @@ screen's PR rather than retrofitting later.
   as the spinner leaving. **Not yet met:** a failure raises the "Couldn't save clips" alert,
   but a successful save is not announced.
 
-### Naming in Clip List and the editor (planned — `PROFILE_DESIGN.md` §4)
+### Name Clips (planned — UIUX §3a, `PROFILE_DESIGN.md` §4)
 
-- A tile's trick names join its picture's label ("Open clip, gainer, cork") rather than
-  being a separate element, so VoiceOver hears what the clip is before opening it.
-- The editor's trick-name field is labeled "Trick name"; each chip is one element with a
-  "Remove" action (`accessibilityAction(named:)`), not a tiny × target; suggestions are
-  buttons announced with their position ("gainer, suggestion 1 of 3").
-- The me / someone-else control announces its state as a value ("Who's in this video: me"),
+- Clip List's "Next: name clips" and "Save without names" are both labeled buttons; the
+  secondary keeps `PrimaryActionBar`'s plain-text style, so it must still meet the 44 pt
+  target.
+- The counter is read with the clip ("Clip 2 of 4"), and paging has buttons ("Next" /
+  "Skip", "Save Clips" on the last clip, "Save now"), so moving between clips never
+  depends on the swipe.
+- The trick-name field is labeled "Trick name"; each chip is one element with a "Remove"
+  action (`accessibilityAction(named:)`), not a tiny × target; suggestions are buttons
+  announced with their position ("gainer, suggestion 1 of 3").
+- The me / someone-else control announces its state as a value ("Who's in this clip: me"),
   never color alone.
+- The looping clip follows Clip List's rule: no auto-playing loop under Reduce Motion or
+  with video autoplay off.
 
 ### Profile (planned — `PROFILE_DESIGN.md` §5–§8)
 

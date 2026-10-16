@@ -7,9 +7,10 @@ Profile tab and what it stands on: the on-device clip library, naming
 clips in the core clip flow, achievements per trick, the gallery
 grouped by trick, highlight videos, how the library survives a
 reinstall, and how the Profile hands named clips to contribution and
-shows what they did. The v1 screens it changes — the root pager, Clip
-List, the Clip Editor — are specified in `docs/UIUX.md`; contribution
-itself in `docs/CONTRIBUTION_DESIGN.md`.
+shows what they did. The parts of the v1 flow it changes — the root
+pager, Clip List's save action, and the Name Clips screen that action
+opens — are specified in `docs/UIUX.md`; contribution itself in
+`docs/CONTRIBUTION_DESIGN.md`.
 
 **Authority.** The contract is the
 [Turnip Farm + ML Master Plan](https://github.com/hoiekim/turnip-farm/blob/main/docs/MASTER_PLAN.md)
@@ -126,10 +127,12 @@ Rules (the farm and ML docs rely on 2, 3 and 6):
 
 ### 2.3 When it is written
 
-- **Save Clips writes it.** Each saved derived clip gets a clip
-  record with its `export_asset_id`; its source gets a source record
-  and its pose. Trashed clips are not stored. A trashed original is
-  still deleted from Photos as today; its source record and pose stay.
+- **Saving writes it** — Name Clips' "Save Clips" or "Save now", or Clip
+  List's "Save without names" (UIUX §3, §3a). Each saved derived clip
+  gets a clip record with its `export_asset_id` and whatever names it
+  was given; its source gets a source record and its pose. Trashed clips
+  are not stored. A trashed original is still deleted from Photos as
+  today; its source record and pose stay.
 - Backing out of Clip List without saving stores nothing.
 - A saved clip can later have its names, `is_me` and `favorite`
   changed from the Clip view (§5.2). Its window and crop cannot: the
@@ -200,9 +203,14 @@ clips are there at all. Recovery comes from the device, in two layers:
    is re-analyzed), provenance, and contribution state, which comes back
    separately for sources whose keys survived in the Keychain
    (`CONTRIBUTION_DESIGN.md` §6).
-   - The record is a snapshot at export. A later rename updates the
-     library, not the file — changing an asset's metadata means saving
-     the video again. *(Judgment call: accepted.)*
+   - The record is a snapshot at export, so it carries the names given
+     on Name Clips before the save. Names given later — from "Needs a
+     name", or a rename — update the library, not the file: changing
+     an asset's metadata means saving the video again. A clip saved
+     without names and named afterwards therefore has its names only in
+     the library and recovers them only from a device backup.
+     *(Judgment call: accepted. CloudKit, §3.3, is the way out if that
+     proves too weak.)*
    - It holds no photo-library identifier, no `source_id`, no
      location.
    - **Unverified; probe before relying on it:** that Photos and iCloud
@@ -235,17 +243,25 @@ exported clips and their records to the user's other devices, so
 
 Naming moves out of the contribution path, where
 `CONTRIBUTION_DESIGN.md` §4 first placed it, into the clip flow itself:
-every saved clip can carry names, contributed or not.
+every saved clip can carry names, contributed or not. It gets a screen
+of its own rather than space on Clip List or the Clip Editor, which are
+already full with triage, trimming and framing controls.
 
 ### 4.1 Where names are given
 
-- **Clip Editor** gains a "Trick name" section below the scrub bar
-  (UIUX §4): a free-text field ("What trick is this? e.g. cork");
-  committing adds a chip; chips are removable; a combo is N chips on
-  one clip (no sub-segmentation, matching the model's `trick_names`).
-- **Clip List** tiles show their clip's names as a caption (UIUX §3).
-- Naming is optional. Save Clips never blocks on it; unnamed clips land
-  in the Profile's "Needs a name" (§5.1).
+- **Name Clips** (UIUX §3a) sits between Clip List and the save.
+  Clip List's main button becomes "Next: name clips"; a quieter "Save
+  without names" under it saves straight away, as Save Clips does
+  today. Name Clips shows one clip at a time, larger, with a free-text
+  field ("What trick is this? e.g. cork"); committing adds a chip;
+  chips are removable; a combo is N chips on one clip (no
+  sub-segmentation, matching the model's `trick_names`). Its last
+  button saves, and "Save now" saves early.
+- The same screen names clips saved without names, opened from the
+  Profile's "Needs a name" (§5.1), ending in "Done" instead of a save.
+- Clip List's tiles and the Clip Editor are unchanged.
+- Naming is optional. Nothing blocks on it ("Skip" moves on); unnamed
+  clips land in the Profile's "Needs a name".
 - No batch naming in v1: one name applied to a whole video's clips
   makes one mistake N times. *(Judgment call.)*
 
@@ -273,10 +289,9 @@ every saved clip can carry names, contributed or not.
 
 ### 4.3 Whose clip
 
-- Each clip has `is_me`, default on. Clip List has one control for the
-  whole video ("Who's in this video?": me / someone else) that sets
-  every clip of it; the Clip Editor's Trick name section overrides it
-  per clip.
+- Each clip has `is_me`, default on. On Name Clips, the choice made on
+  a video's first clip ("me" / "someone else") carries to its other
+  clips, and any clip can change it.
 - `is_me` never leaves the device. Clips marked someone else appear in
   the gallery under its filter (§7) and count toward nothing (§6).
 - When such a clip is in a contribution, the confirmation sheet shows
@@ -304,7 +319,8 @@ counts once under each distinct canonical trick.
   floating bar's third icon, which plays the same slide.
 - One scrolling page, top to bottom:
   - **Needs a name** — a row with the count of unnamed saved clips,
-    shown only when it is above zero; opens them as a grid.
+    shown only when it is above zero; opens them in Name Clips
+    (UIUX §3a).
   - **Achievements** (§6) — cards such as "Gainer · Level 2" and
     "Gainer · 100 reps".
   - **Gallery** (§7) — one row per trick.

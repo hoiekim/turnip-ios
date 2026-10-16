@@ -2,9 +2,11 @@
 
 *Rev 14 · 2026-10-15 · Planned, not built: the root pager gains a third
 page, Profile ([`PROFILE_DESIGN.md`](PROFILE_DESIGN.md)), reached by
-swiping left from Home or by a third icon on the floating bar; Clip List
-and the Clip Editor gain trick names and a "who's in this video" control;
-and Save Clips writes what it saves to an on-device clip library. The
+swiping left from Home or by a third icon on the floating bar. Clip List's
+"Save Clips" becomes "Next: name clips", which opens a new Name Clips
+screen (§3a) where clips are named and then saved, with a quieter "Save
+without names" under it; Clip List's tiles and the Clip Editor are
+unchanged. Saving also writes the clips to an on-device clip library. The
 Profile's own screens are specified in its design doc, not here.*
 
 *Rev 13 · 2026-10-09 · A clip added by hand has no pose analysis, so its
@@ -32,9 +34,9 @@ recording" to "clips are in my Photos library," and is scoped to v1
 labeling, following/feed) — those get their own flow notes once the v1 screens
 exist and v2 work starts. The first of them is the Profile tab, whose screens
 live in [`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §5–§8; this doc carries only
-what it changes on v1 screens, each marked *Planned*: the root pager's third
-page, names on Clip List's tiles and in the editor, and Save Clips writing to
-the clip library. OTA model updates were scoped here as v2 and have
+what it changes in the v1 flow, each marked *Planned*: the root pager's third
+page, Clip List's save action, the Name Clips screen it opens (§3a), and
+saving into the clip library. OTA model updates were scoped here as v2 and have
 since been built ahead of that; see "Built ahead of this doc" below.
 
 ## Why this doc exists
@@ -79,6 +81,7 @@ Where it applies today:
 | Tile ↔ Processing (§1, §2) | Swipe down anywhere on the page | Back chevron | The tile's expansion card shrinking back into the tile ([`EXPANSION_TRANSITIONS.md`](EXPANSION_TRANSITIONS.md)) |
 | Clip List tile ↔ Clip Editor (§3, §4) | Swipe down above the crop marker | Back chevron | Same, with the card showing the editor's own player |
 | *Planned:* Home ↔ Profile (Root navigation) | Horizontal page swipe | Floating bar's gallery / profile icons | The pager's horizontal slide (`RootTabView.slide(to:)`) |
+| *Planned:* Name Clips, one clip ↔ the next (§3a) | Horizontal swipe | "Next" / "Skip" | The page slide between clips |
 | *Planned:* Profile clip tile ↔ Clip view ([`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §5.2) | Swipe down | Back chevron | The tile's expansion card, showing the clip's own player |
 
 Not every state change has a gesture counterpart that it owes an animation.
@@ -148,6 +151,11 @@ flowchart TD
     D -->|delete| C
     C -->|tap Save Clips| A
     C -->|back| A
+    C -.->|planned: Next: name clips| N[Name Clips]
+    C -.->|planned: Save without names| A
+    N -.->|planned: Save Clips| A
+    N -.->|planned: back| C
+    P -.->|planned: Needs a name| N
 ```
 
 The whole app forces dark appearance (`.preferredColorScheme(.dark)` in
@@ -428,14 +436,16 @@ default empty state, so it never reads as "your library is empty."
   confirmed it saved — a clip that fails leaves the original alone and shows
   an alert naming the failure, so Save Clips can be retried without risking the
   user's only copy of a trick that never actually saved.
-- *Planned* ([`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §2.3, §4): each derived
-  tile shows its clip's trick names as a caption along its bottom edge, above
-  the timeline; a clip with none shows nothing there. One control in the
-  screen's bottom bar, beside Save Clips, sets who is in the video — me
-  (default) or someone else — for all of its clips. Save Clips also writes
-  every clip it saved, with its saved Photos asset, its names and the video's
-  pose, to the on-device clip library the Profile reads; it never blocks on a
-  clip having no name.
+- *Planned* ([`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §2.3, §4): "Save Clips"
+  becomes "Next: name clips", which opens Name Clips (§3a), where the save now
+  happens. Under it, in the same bar, a quieter "Save without names" text
+  button — `PrimaryActionBar`'s secondary action, styled like Processing's
+  "Clip manually" — does exactly what Save Clips does today, skipping the
+  naming step; its clips wait in the Profile's "Needs a name". Either way the
+  save also writes each saved clip, its saved Photos asset and the video's
+  pose to the on-device clip library the Profile reads. With no derived clip
+  left to name (every one trashed), the button reads "Save Clips" as today
+  and the secondary is not shown. The tiles are unchanged.
 - The back chevron pops to Home, not to Processing; the title sits centered
   inline on the same line as the chevron, Photos-app style. The chevron is
   the same glass circle every other screen's chevron is (`ScrimIconButton`),
@@ -445,6 +455,46 @@ default empty state, so it never reads as "your library is empty."
   sideways slide, like any navigation pop — not a shrink back into the
   video's tile, since this screen's tiles are the clips cut from the video,
   not the video itself (`EXPANSION_TRANSITIONS.md`, Rev 9).
+
+### 3a. Name Clips *(planned — [`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §4)*
+
+- Pushed from Clip List's "Next: name clips" (§3) with the usual sideways
+  slide. The back chevron pops back to Clip List with every name given so
+  far kept, since nothing has been saved yet. The same
+  screen opens from the Profile's "Needs a name" for clips saved without
+  names.
+- One clip at a time, full width, looping its window with the framing export
+  uses — its Clip List tile's picture, larger. No editing controls: trimming
+  and framing stay in the editor (§4), which this screen doesn't open.
+- Under the clip:
+  - the trick-name field ("What trick is this? e.g. cork"); each committed
+    name becomes a removable chip, and a combo takes several;
+  - suggestion chips — names already used on this video first, then the
+    trick vocabulary as the user types; once the trick model ships, the names
+    it is confident in arrive already filled in;
+  - who's in it — me (default) or someone else. The first clip's choice
+    carries to the rest of the video's clips; any clip can change it.
+- A counter in the header ("2 of 4") and horizontal paging: a swipe left goes
+  to the next clip, a swipe right to the previous one, and the "Next" button
+  plays the same slide (see "A gesture and its button play one animation").
+  As on Processing (§2), the paging owns every horizontal drag — there is no
+  edge-swipe back, only the chevron — and at the first or last clip the page
+  gives only a little. The button reads "Skip" while the clip has no name;
+  naming is never required.
+- On the last clip the button reads "Save Clips" and does what Clip List's
+  Save Clips does today — the full-screen spinner, the export, the save to
+  Photos, deleting a trashed original only once every clip has saved, the
+  failure alert and retry — then writes the clip library, with each clip's
+  names also in its exported file, and pops to Home. Under the button, from
+  the first clip on, a quieter "Save now" (`PrimaryActionBar`'s secondary)
+  saves at once and leaves the clips not reached yet unnamed, so a long take
+  never costs a row of Skips. *(Judgment call.)*
+- When the name field has focus, the field and its chips ride above the
+  keyboard and the clip shrinks to fit the space above them; this screen has
+  no crop marker to hold in place.
+- Opened from "Needs a name", the clips are already in Photos: the last
+  button reads "Done" and writes names to the clip library only, and there is
+  no "Save now".
 
 ### 4. Clip Detail / Editor
 
@@ -538,16 +588,6 @@ default empty state, so it never reads as "your library is empty."
     photo/video trim gesture): near the track it tracks the touch 1:1; drag
     away and the same finger movement moves it a smaller fraction of the way,
     for fine control. Moving back to the track snaps to full speed again.
-  - *Planned* — a "Trick name" section below the scrub bar
-    ([`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §4): a free-text field ("What
-    trick is this? e.g. cork") that commits each name as a removable chip, a
-    clip taking several for a combo; suggestions from the trick vocabulary
-    while typing, names already used on this video first; and a me / someone
-    else toggle overriding Clip List's choice for this clip. When the field
-    has focus it rides just above the keyboard, the way a message composer
-    does, and the rest of the layout stays put: the marker keeps its size
-    and its place on screen, as everywhere else in the editor, even where
-    the keyboard overlaps the frame below it.
   - A Delete button at the top-right corner removes the clip from the list
     entirely — the same removal the list's own trash button already performs
     on a derived clip's tile (§3). Trashing stays a reversible toggle only
@@ -578,7 +618,7 @@ default empty state, so it never reads as "your library is empty."
 - The Profile tab's own screens — Needs a name, achievements, the gallery by
   trick, highlights, the Clip view — live in
   [`PROFILE_DESIGN.md`](PROFILE_DESIGN.md) §5–§8; this doc carries only the
-  v1-screen changes marked *Planned*.
+  changes to the v1 flow marked *Planned*, Name Clips (§3a) among them.
 - Further Settings options beyond the four §1a covers — aspect ratio, buffer
   duration, and whatever else a future issue asks for stay out of scope until
   one does; the per-clip crop/trim adjustment in Clip Detail's drag handles

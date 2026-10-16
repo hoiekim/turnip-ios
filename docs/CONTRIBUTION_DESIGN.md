@@ -111,7 +111,7 @@ the Settings **analysis granularity** (1–30 fps, default 10;
 is encoded from the frame results the analysis already produced. For
 camera takes where live inference covered the take (`LIVE_POSE.md`),
 those live results are the input — again, no re-decode. The encoding
-happens once, when Save Clips writes the source to the clip library
+happens once, when saving writes the source to the clip library
 (`PROFILE_DESIGN.md` §2.2), so a clip saved today can be contributed
 later even after Clip List has deleted its original from Photos.
 
@@ -147,7 +147,7 @@ authority. iOS-side rules:
   should reflect what the model actually emitted; the farm's resampling
   owns interpolation, and gaps break interpolation by spec).*
 - **One blob per source video**: the full pose sequence, encoded once
-  per source when Save Clips writes it to the clip library
+  per source when saving writes it to the clip library
   (`PROFILE_DESIGN.md` §2.2), stored there in `Application Support/`,
   and uploaded from there on every (re-)contribution. No `tmp/` copy is
   made, so there is nothing for the orphan sweep to learn. The library
@@ -183,9 +183,10 @@ The flow rides the existing screens from `UIUX.md`:
   exactly as the heuristic's do today. The "+" tile, trash toggles, and
   read-only timelines are unchanged.
 - **Clip Detail / Editor (§4)** — window trimming via the scrub-bar
-  handles and crop editing are unchanged; this screen additionally
-  hosts the "Trick name" section where clips are named
-  (`PROFILE_DESIGN.md` §4), contributed or not.
+  handles and crop editing are unchanged.
+- **Name Clips** (`UIUX.md` §3a, `PROFILE_DESIGN.md` §4) — the step
+  between Clip List and the save where clips are named, contributed or
+  not.
 - **The Profile's Clip view** (`PROFILE_DESIGN.md` §5.2) — a saved
   clip's contribute toggle, and a "Contribute named clips" action on
   the Profile page, for clips saved before the user chose to
@@ -463,7 +464,7 @@ distinguishes proposal sources.
 - **Mapping to the UI**: convert segment frames → seconds at canonical
   10 Hz, then onto the local analysis-rate timeline for Clip List tiles
   *(judgment call)*. Names the model is confident in arrive as
-  **pre-filled chips** in the Trick name section — editable and
+  **pre-filled chips** on Name Clips — editable and
   removable, recorded as `origin: model` if kept — and a random tenth
   of model-proposed clips get none: the blind sample. Both rules, and
   the provenance the clip records, are `MODEL_CONTRACT.md` §3.3's.
