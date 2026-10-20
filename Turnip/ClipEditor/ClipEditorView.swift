@@ -331,10 +331,21 @@ struct ClipEditorView: View {
             .onEnded { value in viewModel.applyCropScale(value) }
     }
 
+    /// Recognizes from the first touch movement (`minimumAngleDelta: .zero`) and applies its
+    /// own one-degree dead zone instead of SwiftUI's. A `RotationGesture` whose minimum angle
+    /// is never reached — a pinch or two-finger slide that doesn't turn — neither ends nor
+    /// fails when the fingers lift, and the `SimultaneousGesture` holding it then never ends
+    /// either: every later drag, pinch and turn on the stage is ignored.
     private var rotationGesture: some Gesture {
-        RotationGesture()
-            .updating($gestureRotation) { value, state, _ in state = value }
-            .onEnded { value in viewModel.applyCropRotation(value.radians) }
+        RotationGesture(minimumAngleDelta: .zero)
+            .updating($gestureRotation) { value, state, _ in state = Self.rotationPastDeadZone(value) }
+            .onEnded { value in viewModel.applyCropRotation(Self.rotationPastDeadZone(value).radians) }
+    }
+
+    /// The part of a two-finger turn that rotates the video: none under one degree, which is
+    /// the incidental twist of a pinch rather than a turn.
+    private static func rotationPastDeadZone(_ angle: Angle) -> Angle {
+        abs(angle.degrees) < 1 ? .zero : angle
     }
 
     private func dragGesture(previewScale: CGFloat) -> some Gesture {

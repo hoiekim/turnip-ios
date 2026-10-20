@@ -198,6 +198,45 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertEqual(rotate.label, "Reset rotate", "resetting the crop must leave the rotate button alone")
     }
 
+    /// The stage's pinch, turn and drag each keep working after any of the others. Each one
+    /// is read off Auto crop: the button reads "Reset crop" while the fit is on screen, and a
+    /// gesture that changes the framing returns it to "Auto crop". XCUITest's pinch carries
+    /// no turn at all, which is the two-finger gesture that leaves a `RotationGesture` with a
+    /// minimum angle pending forever (see `ClipEditorView.rotationGesture`).
+    func testClipEditorCropGesturesKeepWorkingAfterAPinch() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-screenshotClipEditor"]
+        app.launch()
+        waitForClipEditorToLoad(app)
+        let crop = app.buttons["auto-crop-button"]
+        let stage = app.descendants(matching: .any).matching(identifier: "clip-editor-crop-surface").firstMatch
+        XCTAssertTrue(waitUntilHittable(crop))
+        let center = stage.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let drag = { (dx: CGFloat) in
+            center.press(
+                forDuration: 0.05, thenDragTo: center.withOffset(CGVector(dx: dx, dy: 0)),
+                withVelocity: XCUIGestureVelocity(600), thenHoldForDuration: 0.05)
+        }
+        let gestures: [(name: String, perform: () -> Void)] = [
+            ("pinch", { stage.pinch(withScale: 0.6, velocity: -1) }),
+            ("drag", { drag(80) }),
+            ("turn", { stage.rotate(0.5, withVelocity: 1) }),
+            ("pinch out", { stage.pinch(withScale: 1.5, velocity: 1) }),
+            ("drag back", { drag(-80) })
+        ]
+        var previous = "launch"
+        for gesture in gestures {
+            crop.tap()
+            XCTAssertTrue(
+                waitUntil { crop.label == "Reset crop" }, "Auto crop did not apply before the \(gesture.name)")
+            gesture.perform()
+            XCTAssertTrue(
+                waitUntil { crop.label == "Auto crop" },
+                "the \(gesture.name) after the \(previous) did not move the video")
+            previous = gesture.name
+        }
+    }
+
     /// Waits for the clip editor harness to reach its loaded state (the trim range label),
     /// failing fast with a reason if its sample movie failed to encode — see `testClipEditor`.
     private func waitForClipEditorToLoad(_ app: XCUIApplication) {
