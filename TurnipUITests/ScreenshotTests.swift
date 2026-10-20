@@ -198,9 +198,11 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertEqual(rotate.label, "Reset rotate", "resetting the crop must leave the rotate button alone")
     }
 
-    /// The stage's pinch, turn and drag each keep working after any of the others. Each one
-    /// is read off Auto crop: the button reads "Reset crop" while the fit is on screen, and a
-    /// gesture that changes the framing returns it to "Auto crop". XCUITest's pinch carries
+    /// The stage keeps taking gestures after a pinch: each gesture in the run still commits a
+    /// change to the framing. Each one is read off Auto crop: the button reads "Reset crop"
+    /// while the fit is on screen, and any committed pinch, turn or drag returns it to "Auto
+    /// crop" (the turn's flip may come from the slight scale XCUITest's rotate also carries,
+    /// so it shows the stage still responds, not the rotation itself). XCUITest's pinch carries
     /// no turn at all, which is the two-finger gesture that leaves a `RotationGesture` with a
     /// minimum angle pending forever (see `ClipEditorView.rotationGesture`).
     func testClipEditorCropGesturesKeepWorkingAfterAPinch() throws {
@@ -232,7 +234,7 @@ final class ScreenshotTests: XCTestCase {
             gesture.perform()
             XCTAssertTrue(
                 waitUntil { crop.label == "Auto crop" },
-                "the \(gesture.name) after the \(previous) did not move the video")
+                "the \(gesture.name) after the \(previous) did not change the framing")
             previous = gesture.name
         }
     }
