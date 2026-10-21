@@ -123,10 +123,11 @@ struct ScreenshotClipListMediaHarness: View {
                         window: TrickWindow(startTime: 3, endTime: 4.5),
                         cropRect: NormalizedRect(minX: 0, maxX: 1, minY: 0, maxY: 1))
                 ],
-                asset: AVURLAsset(url: ScreenshotClipEditorHarness.sampleMovieURL),
+                asset: AVURLAsset(url: ScreenshotClipEditorHarness.sampleMovie.url),
                 assetIdentifier: "screenshot",
                 duration: 6)
         }
+        .sampleMovieFailureNote()
     }
 }
 
@@ -141,7 +142,8 @@ struct ScreenshotClipListMediaHarness: View {
 /// seconds of solid-color frames) so it renders the real editor UI instead. Same
 /// `AVAssetWriter` pattern as the `ClipEditorView` preview. If generation fails the
 /// URL falls back to `/dev/null` and the harness degrades to the (deterministic)
-/// load-failure state instead of crashing.
+/// load-failure state instead of crashing, with the reason drawn over it
+/// (`sampleMovieFailureNote()`).
 struct ScreenshotClipEditorHarness: View {
     /// Generated once per process: `prepare()` needs the file to exist before the
     /// view appears, and re-encoding on every body evaluation would be wasteful.
@@ -149,7 +151,7 @@ struct ScreenshotClipEditorHarness: View {
     /// the accessing thread — so `warmUpSampleMovie()` starts it on a background
     /// queue from `TurnipApp.init()` (when a harness that uses the sample movie is
     /// launched) before any view appears, keeping the encode off the UI thread.
-    fileprivate static let sampleMovieURL: URL = makeScreenshotSampleMovie()
+    fileprivate static let sampleMovie = makeScreenshotSampleMovie()
     /// The roll written into the sample movie's track: a small, clearly non-zero tilt,
     /// so Auto rotate has something to level and the result is visibly a turn.
     static let sampleRollTilt = 3.0 * .pi / 180
@@ -167,12 +169,12 @@ struct ScreenshotClipEditorHarness: View {
     /// Starts the sample-movie encode on a background queue ahead of first use.
     /// Called from `TurnipApp.init()` when a harness that uses the sample movie is
     /// launched, so the first render usually doesn't stall on the encode. (If
-    /// the encode hasn't finished when `body` first touches `sampleMovieURL`,
+    /// the encode hasn't finished when `body` first touches `sampleMovie`,
     /// the main thread still blocks on the lazy initializer until it completes —
     /// the warm-up makes that rare, not impossible.)
     static func warmUpSampleMovie() {
         DispatchQueue.global(qos: .userInitiated).async {
-            _ = Self.sampleMovieURL
+            _ = Self.sampleMovie
         }
     }
 
@@ -182,10 +184,37 @@ struct ScreenshotClipEditorHarness: View {
                 source: ClipEditorSource(
                     window: TrickWindow(startTime: 2, endTime: 5),
                     cropRect: NormalizedRect(minX: 0.25, maxX: 0.75, minY: 0.25, maxY: 0.75),
-                    asset: AVURLAsset(url: Self.sampleMovieURL),
+                    asset: AVURLAsset(url: Self.sampleMovie.url),
                     poseFrames: Self.samplePoseFrames),
                 onCommit: { _ in },
                 onDelete: {})
+        }
+        .sampleMovieFailureNote()
+    }
+}
+
+/// The harnesses' sample movie, or why there isn't one.
+struct ScreenshotSampleMovie: Sendable {
+    /// The movie's file, or `/dev/null` when the encode failed.
+    let url: URL
+    /// What failed, step by step, with how long each attempt ran. Drawn over the harness so a
+    /// UI test that lands on the load-failure state can put it in its failure message: the
+    /// log it also goes to isn't captured on CI.
+    let failure: String?
+}
+
+extension View {
+    /// The sample movie's encode failure, if there was one, as text the UI tests find by
+    /// the `harness-sample-movie-failure` identifier.
+    fileprivate func sampleMovieFailureNote() -> some View {
+        overlay(alignment: .bottom) {
+            if let failure = ScreenshotClipEditorHarness.sampleMovie.failure {
+                Text(failure)
+                    .font(.caption2)
+                    .padding(4)
+                    .background(.background)
+                    .accessibilityIdentifier("harness-sample-movie-failure")
+            }
         }
     }
 }
@@ -196,65 +225,81 @@ struct ScreenshotClipEditorHarness: View {
 /// stalls on the encode. Re-created at a fixed filename each run, so screenshot
 /// runs never litter tmp/ with orphaned sample movies. Falls back to `/dev/null`
 /// (the deterministic load-failure state) if anything fails, instead of crashing.
-private func makeScreenshotSampleMovie() -> URL {
+///
+/// A failure of the writer itself gets one more attempt. A frame that ran out its deadline
+/// doesn't: that is an encoder crawling under load, and a second crawl would carry the harness
+/// past the UI test's own wait, trading the reason for a bare timeout.
+private func makeScreenshotSampleMovie() -> ScreenshotSampleMovie {
     // Fixed filename: each run replaces the previous file rather than adding one.
     let url = URL.temporaryDirectory.appending(path: "ScreenshotSample.mov")
-    // A stale file from a killed run would make the writer's creation fail.
-    try? FileManager.default.removeItem(at: url)
-    do {
-        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
-        let width = 320
-        let height = 568
-        let fps: Int32 = 30
-        let input = AVAssetWriterInput(
-            mediaType: .video,
-            outputSettings: [
-                AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: width,
-                AVVideoHeightKey: height
-            ])
-        input.expectsMediaDataInRealTime = false
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
-            assetWriterInput: input,
-            sourcePixelBufferAttributes: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: width,
-                kCVPixelBufferHeightKey as String: height
-            ])
-        // Inputs go in before writing starts: `add(_:)` raises an uncaught NSException
-        // once the writer is in `.writing`, which no `catch` here can turn into the
-        // `/dev/null` fallback.
-        guard writer.canAdd(input) else { throw ScreenshotMovieError.setupFailed }
-        writer.add(input)
-        let rollInput = AVAssetWriterInput(
-            mediaType: .metadata, outputSettings: nil, sourceFormatHint: try RollTrack.makeFormatDescription())
-        rollInput.expectsMediaDataInRealTime = false
-        guard writer.canAdd(rollInput) else { throw ScreenshotMovieError.setupFailed }
-        writer.add(rollInput)
-        // Like the pixel buffer adaptor above, created before writing starts: an adaptor
-        // made for an input that is already writing raises an uncaught NSException.
-        let rollAdaptor = AVAssetWriterInputMetadataAdaptor(assetWriterInput: rollInput)
-        guard writer.startWriting() else { throw ScreenshotMovieError.setupFailed }
-        try appendSampleFrames(
-            writer: writer, adaptor: adaptor, input: input, roll: (rollAdaptor, rollInput), fps: fps)
-        input.markAsFinished()
-        rollInput.markAsFinished()
-        return try finishSampleMovieWriting(writer: writer, to: url)
-    } catch {
-        // Named in the log, so a UI test that lands on the editor's load-failure state can
-        // be traced to the step that failed instead of only to "the encode failed".
-        Logger(subsystem: "com.hoiekim.turnip", category: "ScreenshotHarness")
-            .error("sample movie encode failed: \(String(describing: error), privacy: .public)")
-        try? FileManager.default.removeItem(at: url)
-        return URL(fileURLWithPath: "/dev/null")
+    var attempts: [String] = []
+    for _ in 1...2 {
+        let started = Date()
+        do {
+            try encodeScreenshotSampleMovie(to: url)
+            return ScreenshotSampleMovie(url: url, failure: nil)
+        } catch {
+            let seconds = String(format: "%.1f", Date().timeIntervalSince(started))
+            attempts.append("\(error) after \(seconds) s")
+            guard (error as? ScreenshotMovieError)?.isWriterFailure == true else { break }
+        }
     }
+    let failure = "sample movie encode failed: " + attempts.joined(separator: "; then ")
+    Logger(subsystem: "com.hoiekim.turnip", category: "ScreenshotHarness")
+        .error("\(failure, privacy: .public)")
+    try? FileManager.default.removeItem(at: url)
+    return ScreenshotSampleMovie(url: URL(fileURLWithPath: "/dev/null"), failure: failure)
+}
+
+/// One attempt at the sample movie, start to finish.
+private func encodeScreenshotSampleMovie(to url: URL) throws {
+    // A stale file from a killed run, or a failed attempt, would make the writer's creation fail.
+    try? FileManager.default.removeItem(at: url)
+    let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+    let width = 320
+    let height = 568
+    let fps: Int32 = 30
+    let input = AVAssetWriterInput(
+        mediaType: .video,
+        outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height
+        ])
+    input.expectsMediaDataInRealTime = false
+    let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+        assetWriterInput: input,
+        sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height
+        ])
+    // Inputs go in before writing starts: `add(_:)` raises an uncaught NSException
+    // once the writer is in `.writing`, which no `catch` here can turn into the
+    // `/dev/null` fallback.
+    guard writer.canAdd(input) else { throw ScreenshotMovieError.setupFailed("can't add the video input") }
+    writer.add(input)
+    let rollInput = AVAssetWriterInput(
+        mediaType: .metadata, outputSettings: nil, sourceFormatHint: try RollTrack.makeFormatDescription())
+    rollInput.expectsMediaDataInRealTime = false
+    guard writer.canAdd(rollInput) else { throw ScreenshotMovieError.setupFailed("can't add the roll input") }
+    writer.add(rollInput)
+    // Like the pixel buffer adaptor above, created before writing starts: an adaptor
+    // made for an input that is already writing raises an uncaught NSException.
+    let rollAdaptor = AVAssetWriterInputMetadataAdaptor(assetWriterInput: rollInput)
+    guard writer.startWriting() else { throw ScreenshotMovieError.writerFailed(step: "start", error: writer.error) }
+    try appendSampleFrames(
+        writer: writer, adaptor: adaptor, input: input, roll: (rollAdaptor, rollInput), fps: fps)
+    input.markAsFinished()
+    rollInput.markAsFinished()
+    try finishSampleMovieWriting(writer: writer)
 }
 
 /// Starts the writer session and encodes the solid-color frames, each followed by that
 /// frame's roll sample. The two inputs advance together, frame by frame: a writer
 /// interleaves its inputs, and one left seconds ahead of the other stops reporting ready
 /// for data until the other catches up, which would stall the encode. The caller
-/// marks both inputs finished. Extracted from `makeScreenshotSampleMovie()` so each
+/// marks both inputs finished. Extracted from `encodeScreenshotSampleMovie(to:)` so each
 /// function stays under the repo's SwiftLint `function_body_length` limit.
 private func appendSampleFrames(
     writer: AVAssetWriter,
@@ -285,23 +330,28 @@ private func appendRollSample(
     while !input.isReadyForMoreMediaData, writer.status == .writing, Date() < deadline {
         Thread.sleep(forTimeInterval: 0.002)
     }
-    guard input.isReadyForMoreMediaData else { throw ScreenshotMovieError.appendFailed }
+    guard input.isReadyForMoreMediaData else {
+        throw ScreenshotMovieError.notReady(writer: writer, input: "roll", frame: frame)
+    }
     let group = RollTrack.timedGroup(
         tilt: ScreenshotClipEditorHarness.sampleRollTilt,
         start: CMTime(value: CMTimeValue(frame), timescale: fps))
-    guard adaptor.append(group) else { throw ScreenshotMovieError.appendFailed }
+    guard adaptor.append(group) else {
+        throw ScreenshotMovieError.writerFailed(step: "append roll sample \(frame)", error: writer.error)
+    }
 }
 
-/// Waits for the writer to finish and returns the movie URL on success, throwing
-/// on failure. Extracted from `makeScreenshotSampleMovie()` so each function stays
-/// under the repo's SwiftLint `function_body_length` limit.
-private func finishSampleMovieWriting(writer: AVAssetWriter, to url: URL) throws -> URL {
+/// Waits for the writer to finish, throwing on failure. Extracted from
+/// `encodeScreenshotSampleMovie(to:)` so each function stays under the repo's SwiftLint
+/// `function_body_length` limit.
+private func finishSampleMovieWriting(writer: AVAssetWriter) throws {
     let finished = DispatchSemaphore(value: 0)
     // The completion handler runs off the main thread, so waiting here can't deadlock.
     writer.finishWriting { finished.signal() }
     finished.wait()
-    guard writer.status == .completed else { throw ScreenshotMovieError.finishFailed }
-    return url
+    guard writer.status == .completed else {
+        throw ScreenshotMovieError.writerFailed(step: "finish", error: writer.error)
+    }
 }
 
 /// Encodes one solid-color frame into the sample movie. The fill varies per frame so
@@ -325,14 +375,16 @@ private func appendSolidFrame(
     while !input.isReadyForMoreMediaData, writer.status == .writing, Date() < deadline {
         Thread.sleep(forTimeInterval: 0.002)
     }
-    guard input.isReadyForMoreMediaData else { throw ScreenshotMovieError.appendFailed }
+    guard input.isReadyForMoreMediaData else {
+        throw ScreenshotMovieError.notReady(writer: writer, input: "video", frame: frame)
+    }
     guard let pool = adaptor.pixelBufferPool else {
-        throw ScreenshotMovieError.setupFailed
+        throw ScreenshotMovieError.writerFailed(step: "pixel buffer pool at frame \(frame)", error: writer.error)
     }
     var pixelBuffer: CVPixelBuffer?
     let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
     guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
-        throw ScreenshotMovieError.setupFailed
+        throw ScreenshotMovieError.setupFailed("pixel buffer at frame \(frame): CVReturn \(status)")
     }
     CVPixelBufferLockBaseAddress(buffer, [])
     if let base = CVPixelBufferGetBaseAddress(buffer) {
@@ -343,12 +395,41 @@ private func appendSolidFrame(
     CVPixelBufferUnlockBaseAddress(buffer, [])
     let time = CMTime(value: CMTimeValue(frame), timescale: fps)
     guard adaptor.append(buffer, withPresentationTime: time) else {
-        throw ScreenshotMovieError.appendFailed
+        throw ScreenshotMovieError.writerFailed(step: "append video frame \(frame)", error: writer.error)
     }
 }
 
-private enum ScreenshotMovieError: Error {
-    case setupFailed, appendFailed, finishFailed
+/// Why the sample movie couldn't be written, worded for the UI test's failure message.
+private enum ScreenshotMovieError: Error, CustomStringConvertible {
+    case setupFailed(String)
+    /// An input stayed busy past its per-frame deadline while the writer was still writing.
+    case timedOut(input: String, frame: Int)
+    /// The writer itself failed, with AVFoundation's error when it gave one.
+    case writerFailed(step: String, error: Error?)
+
+    /// An input that never became ready: a deadline that ran out if the writer is still
+    /// writing, the writer's own failure otherwise.
+    static func notReady(writer: AVAssetWriter, input: String, frame: Int) -> ScreenshotMovieError {
+        writer.status == .writing
+            ? .timedOut(input: input, frame: frame)
+            : .writerFailed(step: "\(input) input at frame \(frame)", error: writer.error)
+    }
+
+    var isWriterFailure: Bool {
+        if case .writerFailed = self { return true }
+        return false
+    }
+
+    var description: String {
+        switch self {
+        case .setupFailed(let what):
+            return "setup failed: \(what)"
+        case let .timedOut(input, frame):
+            return "\(input) input not ready within 15 s at frame \(frame)"
+        case let .writerFailed(step, error):
+            return "writer failed at \(step): \(error.map { String(describing: $0) } ?? "no error given")"
+        }
+    }
 }
 
 // MARK: - Processing
@@ -381,11 +462,12 @@ struct ScreenshotProcessingPoseHarness: View {
             ProcessingView(
                 video: SelectedVideo(
                     assetIdentifier: "screenshot",
-                    asset: AVURLAsset(url: ScreenshotClipEditorHarness.sampleMovieURL),
+                    asset: AVURLAsset(url: ScreenshotClipEditorHarness.sampleMovie.url),
                     duration: 6),
                 runner: ScreenshotProcessingPoseRunner(),
                 destination: { _, _ in EmptyView() })
         }
+        .sampleMovieFailureNote()
     }
 }
 
