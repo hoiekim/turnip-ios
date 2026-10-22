@@ -112,8 +112,15 @@ struct ScreenshotClipListHarness: View {
 /// does not shadow the tile's tap.
 struct ScreenshotClipListMediaHarness: View {
     var body: some View {
-        NavigationStack {
-            ClipListView(
+        HarnessMovieGate(ScreenshotClipEditorHarness.sampleMovie) { movie in
+            NavigationStack {
+                clipList(asset: AVURLAsset(url: movie.url))
+            }
+        }
+    }
+
+    private func clipList(asset: AVURLAsset) -> some View {
+        ClipListView(
                 items: [
                     ClipListItem(
                         window: TrickWindow(startTime: 0.5, endTime: 2),
@@ -123,11 +130,9 @@ struct ScreenshotClipListMediaHarness: View {
                         window: TrickWindow(startTime: 3, endTime: 4.5),
                         cropRect: NormalizedRect(minX: 0, maxX: 1, minY: 0, maxY: 1))
                 ],
-                asset: AVURLAsset(url: ScreenshotClipEditorHarness.sampleMovie.url),
+                asset: asset,
                 assetIdentifier: "screenshot",
                 duration: 6)
-        }
-        .sampleMovieFailureNote(ScreenshotClipEditorHarness.sampleMovie)
     }
 }
 
@@ -179,17 +184,18 @@ struct ScreenshotClipEditorHarness: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ClipEditorView(
-                source: ClipEditorSource(
-                    window: TrickWindow(startTime: 2, endTime: 5),
-                    cropRect: NormalizedRect(minX: 0.25, maxX: 0.75, minY: 0.25, maxY: 0.75),
-                    asset: AVURLAsset(url: Self.sampleMovie.url),
-                    poseFrames: Self.samplePoseFrames),
-                onCommit: { _ in },
-                onDelete: {})
+        HarnessMovieGate(Self.sampleMovie) { movie in
+            NavigationStack {
+                ClipEditorView(
+                    source: ClipEditorSource(
+                        window: TrickWindow(startTime: 2, endTime: 5),
+                        cropRect: NormalizedRect(minX: 0.25, maxX: 0.75, minY: 0.25, maxY: 0.75),
+                        asset: AVURLAsset(url: movie.url),
+                        poseFrames: Self.samplePoseFrames),
+                    onCommit: { _ in },
+                    onDelete: {})
+            }
         }
-        .sampleMovieFailureNote(Self.sampleMovie)
     }
 }
 
@@ -219,28 +225,90 @@ extension View {
     }
 }
 
+/// Shows a harness once its movie is ready, reading it off the main thread. The movies are
+/// lazy statics, and a `body` that read one while the encode was still running would block
+/// the main thread until it finished: the app froze, and the UI tests' queries with it, for
+/// as long as the encoder took.
+struct HarnessMovieGate<Content: View>: View {
+    private let movie: @Sendable () -> ScreenshotSampleMovie
+    private let content: (ScreenshotSampleMovie) -> Content
+    @State private var loaded: ScreenshotSampleMovie?
+
+    init(
+        _ movie: @autoclosure @escaping @Sendable () -> ScreenshotSampleMovie,
+        @ViewBuilder content: @escaping (ScreenshotSampleMovie) -> Content
+    ) {
+        self.movie = movie
+        self.content = content
+    }
+
+    var body: some View {
+        ZStack {
+            if let loaded {
+                content(loaded).sampleMovieFailureNote(loaded)
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            let movie = movie
+            loaded = await Task.detached(priority: .userInitiated) { movie() }.value
+        }
+    }
+}
+
+/// Where a harness movie is kept between launches of one build of the app. The UI tests
+/// launch the app dozens of times a run, and encoding on every launch gave a slow or failing
+/// encoder on a loaded CI runner that many chances to cost a test. The file name carries the
+/// build's executable date, so a rebuilt app, whose harness may draw differently, encodes
+/// afresh. The movie is written under a temporary name and moved into place once complete,
+/// so a launch killed mid-encode leaves nothing a later launch would take for a movie.
+enum HarnessMovieFile {
+    /// This build's movie called `name`, encoded with `encode` unless an earlier launch of the
+    /// same build already did, which `reused` says.
+    static func movie(named name: String, encode: (URL) throws -> Void) throws -> (url: URL, reused: Bool) {
+        let fileManager = FileManager.default
+        let directory = URL.temporaryDirectory
+        let url = directory.appending(path: "\(name)-\(buildStamp).mov")
+        if fileManager.fileExists(atPath: url.path(percentEncoded: false)) {
+            return (url, true)
+        }
+        let earlier = (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for file in earlier where file.lastPathComponent.hasPrefix("\(name)-") {
+            try? fileManager.removeItem(at: file)
+        }
+        let partial = directory.appending(path: "\(name)-partial.mov")
+        try encode(partial)
+        try fileManager.moveItem(at: partial, to: url)
+        return (url, false)
+    }
+
+    private static let buildStamp: Int = {
+        let values = try? Bundle.main.executableURL?.resourceValues(forKeys: [.contentModificationDateKey])
+        return Int(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)
+    }()
+}
+
 /// Writes the sample movie for `ScreenshotClipEditorHarness`: six seconds of
-/// solid-color H.264 frames at 320x568. Synchronous; `warmUpSampleMovie()` starts
-/// it on a background queue before any view appears, so the main thread never
-/// stalls on the encode. Re-created at a fixed filename each run, so screenshot
-/// runs never litter tmp/ with orphaned sample movies. Falls back to `/dev/null`
-/// (the deterministic load-failure state) if anything fails, instead of crashing.
+/// solid-color H.264 frames at 320x568, once per build (`HarnessMovieFile`).
+/// Synchronous; `warmUpSampleMovie()` starts it on a background queue before any view
+/// appears, and `HarnessMovieGate` waits for it off the main thread. Falls back to
+/// `/dev/null` (the deterministic load-failure state) if anything fails, instead of crashing.
 ///
 /// A failure of the writer itself gets one more attempt. A frame that ran out its deadline
 /// doesn't: that is an encoder crawling under load, and a second crawl would carry the harness
 /// past the UI test's own wait, trading the reason for a bare timeout.
 private func makeScreenshotSampleMovie() -> ScreenshotSampleMovie {
-    // Fixed filename: each run replaces the previous file rather than adding one.
-    let url = URL.temporaryDirectory.appending(path: "ScreenshotSample.mov")
     var attempts: [String] = []
     let logger = Logger(subsystem: "com.hoiekim.turnip", category: "ScreenshotHarness")
     for _ in 1...2 {
         let started = Date()
         do {
-            try encodeScreenshotSampleMovie(to: url)
+            let file = try HarnessMovieFile.movie(named: "ScreenshotSample") { try encodeScreenshotSampleMovie(to: $0) }
             let seconds = String(format: "%.1f", Date().timeIntervalSince(started))
-            logger.notice("sample movie encoded in \(seconds, privacy: .public) s")
-            return ScreenshotSampleMovie(url: url, failure: nil)
+            let how = file.reused ? "reused" : "encoded"
+            logger.notice("sample movie \(how, privacy: .public) in \(seconds, privacy: .public) s")
+            return ScreenshotSampleMovie(url: file.url, failure: nil)
         } catch {
             let seconds = String(format: "%.1f", Date().timeIntervalSince(started))
             attempts.append("\(error) after \(seconds) s")
@@ -249,7 +317,6 @@ private func makeScreenshotSampleMovie() -> ScreenshotSampleMovie {
     }
     let failure = "sample movie encode failed: " + attempts.joined(separator: "; then ")
     logger.error("\(failure, privacy: .public)")
-    try? FileManager.default.removeItem(at: url)
     return ScreenshotSampleMovie(url: URL(fileURLWithPath: "/dev/null"), failure: failure)
 }
 
@@ -466,16 +533,17 @@ struct ScreenshotProcessingHarness: View {
 /// `-screenshotProcessing`'s `/dev/null` asset.
 struct ScreenshotProcessingPoseHarness: View {
     var body: some View {
-        NavigationStack {
-            ProcessingView(
-                video: SelectedVideo(
-                    assetIdentifier: "screenshot",
-                    asset: AVURLAsset(url: ScreenshotClipEditorHarness.sampleMovie.url),
-                    duration: 6),
-                runner: ScreenshotProcessingPoseRunner(),
-                destination: { _, _ in EmptyView() })
+        HarnessMovieGate(ScreenshotClipEditorHarness.sampleMovie) { movie in
+            NavigationStack {
+                ProcessingView(
+                    video: SelectedVideo(
+                        assetIdentifier: "screenshot",
+                        asset: AVURLAsset(url: movie.url),
+                        duration: 6),
+                    runner: ScreenshotProcessingPoseRunner(),
+                    destination: { _, _ in EmptyView() })
+            }
         }
-        .sampleMovieFailureNote(ScreenshotClipEditorHarness.sampleMovie)
     }
 }
 

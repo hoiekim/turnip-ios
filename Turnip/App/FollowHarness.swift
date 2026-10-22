@@ -57,23 +57,22 @@ enum FollowHarness {
             ?? NormalizedRect(minX: 0, maxX: 1, minY: 0, maxY: 1)
     }
 
-    /// Encodes the take, or says why it couldn't: the failure is drawn over the harness
-    /// (`sampleMovieFailureNote(_:)`) and logged, and the URL falls back to `/dev/null`, the
-    /// editor's load-failure state. Each attempt's time goes to the log either way.
+    /// The take, encoded once per build (`HarnessMovieFile`), or why it couldn't be: the
+    /// failure is drawn over the harness (`HarnessMovieGate`) and logged, and the URL falls
+    /// back to `/dev/null`, the editor's load-failure state. The time it took is logged either way.
     private static func makeMovie() -> ScreenshotSampleMovie {
-        let url = URL.temporaryDirectory.appending(path: "FollowHarness.mov")
         let logger = Logger(subsystem: "com.hoiekim.turnip", category: "FollowHarness")
         let started = Date()
         do {
-            try encodeMovie(to: url)
+            let file = try HarnessMovieFile.movie(named: "FollowHarness") { try encodeMovie(to: $0) }
             let elapsed = String(format: "%.1f", Date().timeIntervalSince(started))
-            logger.notice("follow movie encoded in \(elapsed, privacy: .public) s")
-            return ScreenshotSampleMovie(url: url, failure: nil)
+            let how = file.reused ? "reused" : "encoded"
+            logger.notice("follow movie \(how, privacy: .public) in \(elapsed, privacy: .public) s")
+            return ScreenshotSampleMovie(url: file.url, failure: nil)
         } catch {
             let elapsed = String(format: "%.1f", Date().timeIntervalSince(started))
             let failure = "follow movie encode failed: \(error) after \(elapsed) s"
             logger.error("\(failure, privacy: .public)")
-            try? FileManager.default.removeItem(at: url)
             return ScreenshotSampleMovie(url: URL(fileURLWithPath: "/dev/null"), failure: failure)
         }
     }
@@ -161,35 +160,38 @@ enum FollowHarness {
 /// `-screenshotClipEditorFollow`: see `FollowHarness`.
 struct ScreenshotFollowEditorHarness: View {
     var body: some View {
-        NavigationStack {
-            ClipEditorView(
-                source: ClipEditorSource(
-                    window: FollowHarness.window,
-                    cropRect: FollowHarness.cropRect,
-                    framingMode: CommandLine.arguments.contains("-follow") ? .follow : .still,
-                    asset: AVURLAsset(url: FollowHarness.movie.url),
-                    poseFrames: FollowHarness.poseFrames),
-                onCommit: { _ in },
-                onDelete: {})
+        HarnessMovieGate(FollowHarness.movie) { movie in
+            NavigationStack {
+                ClipEditorView(
+                    source: ClipEditorSource(
+                        window: FollowHarness.window,
+                        cropRect: FollowHarness.cropRect,
+                        framingMode: CommandLine.arguments.contains("-follow") ? .follow : .still,
+                        asset: AVURLAsset(url: movie.url),
+                        poseFrames: FollowHarness.poseFrames),
+                    onCommit: { _ in },
+                    onDelete: {})
+            }
         }
-        .sampleMovieFailureNote(FollowHarness.movie)
     }
 }
 
 /// `-screenshotClipListFollow`: see `FollowHarness`.
 struct ScreenshotFollowClipListHarness: View {
     var body: some View {
-        NavigationStack {
-            ClipListView(
-                items: [
-                    ClipListItem(window: FollowHarness.window, cropRect: FollowHarness.cropRect, framingMode: .follow)
-                ],
-                poseFrames: FollowHarness.poseFrames,
-                asset: AVURLAsset(url: FollowHarness.movie.url),
-                assetIdentifier: "screenshot",
-                duration: Double(FollowHarness.seconds))
+        HarnessMovieGate(FollowHarness.movie) { movie in
+            NavigationStack {
+                ClipListView(
+                    items: [
+                        ClipListItem(
+                            window: FollowHarness.window, cropRect: FollowHarness.cropRect, framingMode: .follow)
+                    ],
+                    poseFrames: FollowHarness.poseFrames,
+                    asset: AVURLAsset(url: movie.url),
+                    assetIdentifier: "screenshot",
+                    duration: Double(FollowHarness.seconds))
+            }
         }
-        .sampleMovieFailureNote(FollowHarness.movie)
     }
 }
 #endif
