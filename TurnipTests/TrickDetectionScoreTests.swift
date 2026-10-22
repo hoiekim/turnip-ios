@@ -139,6 +139,18 @@ final class TrickDetectionScoreTests: XCTestCase {
         XCTAssertEqual(score.outcomes, [.caught])
     }
 
+    /// A crop that spans the person's x but not their y frames someone above or below them.
+    func testAPositionAboveOrBelowTheCropIsTheWrongPerson() {
+        let topHalf = NormalizedRect(minX: 0, maxX: 1, minY: 0, maxY: 0.5)
+        let bottomHalf = NormalizedRect(minX: 0, maxX: 1, minY: 0.5, maxY: 1)
+
+        let below = TrickDetectionScore(clips: [clip(6.9, 11.9, crop: topHalf)], tricks: [positioned(at: 0.3, 0.8)])
+        let above = TrickDetectionScore(clips: [clip(6.9, 11.9, crop: bottomHalf)], tricks: [positioned(at: 0.3, 0.2)])
+
+        XCTAssertEqual(below.outcomes, [.wrongPerson])
+        XCTAssertEqual(above.outcomes, [.wrongPerson])
+    }
+
     /// The crop's edges are inside it: a person labelled on the edge of the crop is framed.
     func testAPositionOnTheCropsEdgeIsFramed() {
         let score = TrickDetectionScore(
