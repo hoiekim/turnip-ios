@@ -28,6 +28,15 @@ final class FramePreprocessorTests: XCTestCase {
         XCTAssertEqual(preprocessor.targetHeight, 384)
     }
 
+    /// Up, not to the nearer multiple: 700/1000 of 384 is 269, 8.4 multiples of 32, so the short
+    /// side is 288 and the frame keeps every row rather than losing 13 of them to 256.
+    func testFittingRoundsUpWhenTheNearerMultipleIsBelow() {
+        let preprocessor = FramePreprocessor(fitting: CGSize(width: 1000, height: 700), longSide: 384)
+
+        XCTAssertEqual(preprocessor.targetWidth, 384)
+        XCTAssertEqual(preprocessor.targetHeight, 288)
+    }
+
     func testFittingALandscapeFramePutsTheLongSideAcross() {
         let preprocessor = FramePreprocessor(fitting: CGSize(width: 1920, height: 1080), longSide: 384)
 
