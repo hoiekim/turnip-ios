@@ -237,10 +237,10 @@ final class ScreenshotTests: XCTestCase {
     }
 
     /// What a test that lands on the editor's load-failure state reports: the harness's own
-    /// account of the encode failure when it drew one (`harness-sample-movie-failure`), since
-    /// the app's log never reaches CI.
+    /// account of the encode failure when it drew one (`HarnessIdentifier.sampleMovieFailure`),
+    /// since the app's log never reaches CI.
     private func sampleMovieFailureMessage(in app: XCUIApplication) -> String {
-        let note = app.staticTexts["harness-sample-movie-failure"]
+        let note = app.staticTexts[HarnessIdentifier.sampleMovieFailure]
         let reason = note.exists ? note.label : "the harness's sample movie failed to encode"
         return "editor reached its load-failure state: \(reason)"
     }

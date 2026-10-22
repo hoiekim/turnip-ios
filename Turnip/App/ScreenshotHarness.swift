@@ -205,7 +205,7 @@ struct ScreenshotSampleMovie: Sendable {
 
 extension View {
     /// The sample movie's encode failure, if there was one, as text the UI tests find by
-    /// the `harness-sample-movie-failure` identifier.
+    /// `HarnessIdentifier.sampleMovieFailure`.
     fileprivate func sampleMovieFailureNote() -> some View {
         overlay(alignment: .bottom) {
             if let failure = ScreenshotClipEditorHarness.sampleMovie.failure {
@@ -213,7 +213,7 @@ extension View {
                     .font(.caption2)
                     .padding(4)
                     .background(.background)
-                    .accessibilityIdentifier("harness-sample-movie-failure")
+                    .accessibilityIdentifier(HarnessIdentifier.sampleMovieFailure)
             }
         }
     }
