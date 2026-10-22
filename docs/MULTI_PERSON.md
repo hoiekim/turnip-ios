@@ -155,7 +155,7 @@ Worth trying again against labels; not adopted on this evidence.
 2. **Labels.** Trick windows, and who did each, on the gym take and ideally one more multi-person take, in the evaluation's `labels.json`. The scorer gains duplicate counting and checks each caught trick's clip against the right person.
 3. **Tracker and per-person detection in Processing**, behind a Settings toggle, off by default, the way Follow the athlete shipped. The data changes above, the editor and Clip List reading the clip's own person, and every skeleton on the progress overlay. The Swift tracker is checked against the spike's on the same saved detections.
 4. **Live takes tracked at the hand-off**, after the gate, and every skeleton on the camera overlay.
-5. **Docs that describe shipped behaviour:** `UIUX.md` §3, `PRIVACY.md`, and `PROFILE_DESIGN.md` §2.2 and §4.3, as each lands.
+5. **Docs that describe shipped behaviour,** as each step lands: `CONTRIBUTION_DESIGN.md` §2.1 and §9 (the bundled pose model at step 1, a contribution carrying the clip's own person at step 3), `UIUX.md` §1a (the Settings toggle) and §3, `PRIVACY.md`, and `PROFILE_DESIGN.md` §2.2 and §4.3.
 
 ## Alternatives
 
