@@ -14,7 +14,9 @@ final class FollowModeTests: XCTestCase {
         app.launch()
         let modeSwitch = app.segmentedControls["framing-mode-switch"]
         XCTAssertTrue(modeSwitch.waitForExistence(timeout: 45))
-        XCTAssertTrue(waitUntil(timeout: 45) { modeSwitch.isEnabled }, "the editor never loaded its media")
+        XCTAssertTrue(
+            waitUntil(timeout: 45) { modeSwitch.isEnabled },
+            "the editor never loaded its media: \(app.harnessMovieState)")
         return app
     }
 

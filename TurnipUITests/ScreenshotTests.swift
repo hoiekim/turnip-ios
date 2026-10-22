@@ -236,13 +236,9 @@ final class ScreenshotTests: XCTestCase {
         }
     }
 
-    /// What a test that lands on the editor's load-failure state reports: the harness's own
-    /// account of the encode failure when it drew one (`HarnessIdentifier.sampleMovieFailure`),
-    /// since the app's log never reaches CI.
+    /// What a test that lands on the editor's load-failure state reports.
     private func sampleMovieFailureMessage(in app: XCUIApplication) -> String {
-        let note = app.staticTexts[HarnessIdentifier.sampleMovieFailure]
-        let reason = note.exists ? note.label : "the harness's sample movie failed to encode"
-        return "editor reached its load-failure state: \(reason)"
+        "editor reached its load-failure state: \(app.harnessMovieState)"
     }
 
     /// Waits for the clip editor harness to reach its loaded state (the trim range label),
@@ -262,7 +258,7 @@ final class ScreenshotTests: XCTestCase {
             }
             Thread.sleep(forTimeInterval: 0.25)
         }
-        XCTAssertTrue(trimRange.exists, "the editor never reached its loaded state")
+        XCTAssertTrue(trimRange.exists, "the editor never reached its loaded state: \(app.harnessMovieState)")
     }
 
     private func waitUntil(timeout: TimeInterval = 10, _ condition: () -> Bool) -> Bool {
@@ -344,7 +340,7 @@ final class ScreenshotTests: XCTestCase {
             }
             Thread.sleep(forTimeInterval: 0.25)
         }
-        XCTAssertTrue(trimRange.exists, "trim range never loaded within 45s")
+        XCTAssertTrue(trimRange.exists, "trim range never loaded within 45s: \(app.harnessMovieState)")
         addScreenshot(named: "clip-editor")
     }
 

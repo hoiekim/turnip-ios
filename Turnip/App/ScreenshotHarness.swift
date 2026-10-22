@@ -127,7 +127,7 @@ struct ScreenshotClipListMediaHarness: View {
                 assetIdentifier: "screenshot",
                 duration: 6)
         }
-        .sampleMovieFailureNote()
+        .sampleMovieFailureNote(ScreenshotClipEditorHarness.sampleMovie)
     }
 }
 
@@ -143,7 +143,7 @@ struct ScreenshotClipListMediaHarness: View {
 /// `AVAssetWriter` pattern as the `ClipEditorView` preview. If generation fails the
 /// URL falls back to `/dev/null` and the harness degrades to the (deterministic)
 /// load-failure state instead of crashing, with the reason drawn over it
-/// (`sampleMovieFailureNote()`).
+/// (`sampleMovieFailureNote(_:)`).
 struct ScreenshotClipEditorHarness: View {
     /// Generated once per process: `prepare()` needs the file to exist before the
     /// view appears, and re-encoding on every body evaluation would be wasteful.
@@ -189,7 +189,7 @@ struct ScreenshotClipEditorHarness: View {
                 onCommit: { _ in },
                 onDelete: {})
         }
-        .sampleMovieFailureNote()
+        .sampleMovieFailureNote(Self.sampleMovie)
     }
 }
 
@@ -204,11 +204,11 @@ struct ScreenshotSampleMovie: Sendable {
 }
 
 extension View {
-    /// The sample movie's encode failure, if there was one, as text the UI tests find by
+    /// A harness movie's encode failure, if there was one, as text the UI tests find by
     /// `HarnessIdentifier.sampleMovieFailure`.
-    fileprivate func sampleMovieFailureNote() -> some View {
+    func sampleMovieFailureNote(_ movie: ScreenshotSampleMovie) -> some View {
         overlay(alignment: .bottom) {
-            if let failure = ScreenshotClipEditorHarness.sampleMovie.failure {
+            if let failure = movie.failure {
                 Text(failure)
                     .font(.caption2)
                     .padding(4)
@@ -233,10 +233,13 @@ private func makeScreenshotSampleMovie() -> ScreenshotSampleMovie {
     // Fixed filename: each run replaces the previous file rather than adding one.
     let url = URL.temporaryDirectory.appending(path: "ScreenshotSample.mov")
     var attempts: [String] = []
+    let logger = Logger(subsystem: "com.hoiekim.turnip", category: "ScreenshotHarness")
     for _ in 1...2 {
         let started = Date()
         do {
             try encodeScreenshotSampleMovie(to: url)
+            let seconds = String(format: "%.1f", Date().timeIntervalSince(started))
+            logger.notice("sample movie encoded in \(seconds, privacy: .public) s")
             return ScreenshotSampleMovie(url: url, failure: nil)
         } catch {
             let seconds = String(format: "%.1f", Date().timeIntervalSince(started))
@@ -245,8 +248,7 @@ private func makeScreenshotSampleMovie() -> ScreenshotSampleMovie {
         }
     }
     let failure = "sample movie encode failed: " + attempts.joined(separator: "; then ")
-    Logger(subsystem: "com.hoiekim.turnip", category: "ScreenshotHarness")
-        .error("\(failure, privacy: .public)")
+    logger.error("\(failure, privacy: .public)")
     try? FileManager.default.removeItem(at: url)
     return ScreenshotSampleMovie(url: URL(fileURLWithPath: "/dev/null"), failure: failure)
 }
@@ -341,14 +343,16 @@ private func appendRollSample(
     }
 }
 
-/// Waits for the writer to finish, throwing on failure. Extracted from
-/// `encodeScreenshotSampleMovie(to:)` so each function stays under the repo's SwiftLint
-/// `function_body_length` limit.
-private func finishSampleMovieWriting(writer: AVAssetWriter) throws {
+/// Waits for a harness movie's writer to finish, throwing on failure, or when it hasn't
+/// finished in 30 s: a writer that never calls back would otherwise hold the harness, and
+/// the main thread waiting on it, past every UI test's wait with no reason given.
+func finishSampleMovieWriting(writer: AVAssetWriter) throws {
     let finished = DispatchSemaphore(value: 0)
     // The completion handler runs off the main thread, so waiting here can't deadlock.
     writer.finishWriting { finished.signal() }
-    finished.wait()
+    guard finished.wait(timeout: .now() + 30) == .success else {
+        throw ScreenshotMovieError.finishTimedOut
+    }
     guard writer.status == .completed else {
         throw ScreenshotMovieError.writerFailed(step: "finish", error: writer.error)
     }
@@ -399,11 +403,13 @@ private func appendSolidFrame(
     }
 }
 
-/// Why the sample movie couldn't be written, worded for the UI test's failure message.
-private enum ScreenshotMovieError: Error, CustomStringConvertible {
+/// Why a harness movie couldn't be written, worded for the UI test's failure message.
+enum ScreenshotMovieError: Error, CustomStringConvertible {
     case setupFailed(String)
     /// An input stayed busy past its per-frame deadline while the writer was still writing.
     case timedOut(input: String, frame: Int)
+    /// Every frame went in, but the writer didn't finish the file in time.
+    case finishTimedOut
     /// The writer itself failed, with AVFoundation's error when it gave one.
     case writerFailed(step: String, error: Error?)
 
@@ -426,6 +432,8 @@ private enum ScreenshotMovieError: Error, CustomStringConvertible {
             return "setup failed: \(what)"
         case let .timedOut(input, frame):
             return "\(input) input not ready within 15 s at frame \(frame)"
+        case .finishTimedOut:
+            return "writer didn't finish within 30 s"
         case let .writerFailed(step, error):
             return "writer failed at \(step): \(error.map { String(describing: $0) } ?? "no error given")"
         }
@@ -467,7 +475,7 @@ struct ScreenshotProcessingPoseHarness: View {
                 runner: ScreenshotProcessingPoseRunner(),
                 destination: { _, _ in EmptyView() })
         }
-        .sampleMovieFailureNote()
+        .sampleMovieFailureNote(ScreenshotClipEditorHarness.sampleMovie)
     }
 }
 

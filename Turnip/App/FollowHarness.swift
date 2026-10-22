@@ -28,11 +28,11 @@ enum FollowHarness {
         return 120 + CGFloat(eased) * 400
     }
 
-    static let movieURL: URL = makeMovie()
+    static let movie = makeMovie()
 
     static func warmUp() {
         DispatchQueue.global(qos: .userInitiated).async {
-            _ = Self.movieURL
+            _ = Self.movie
         }
     }
 
@@ -57,54 +57,79 @@ enum FollowHarness {
             ?? NormalizedRect(minX: 0, maxX: 1, minY: 0, maxY: 1)
     }
 
-    private static func makeMovie() -> URL {
+    /// Encodes the take, or says why it couldn't: the failure is drawn over the harness
+    /// (`sampleMovieFailureNote(_:)`) and logged, and the URL falls back to `/dev/null`, the
+    /// editor's load-failure state. Each attempt's time goes to the log either way.
+    private static func makeMovie() -> ScreenshotSampleMovie {
         let url = URL.temporaryDirectory.appending(path: "FollowHarness.mov")
-        try? FileManager.default.removeItem(at: url)
+        let logger = Logger(subsystem: "com.hoiekim.turnip", category: "FollowHarness")
+        let started = Date()
         do {
-            let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
-            let width = Int(size.width), height = Int(size.height)
-            let input = AVAssetWriterInput(
-                mediaType: .video,
-                outputSettings: [
-                    AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height
-                ])
-            input.expectsMediaDataInRealTime = false
-            let adaptor = AVAssetWriterInputPixelBufferAdaptor(
-                assetWriterInput: input,
-                sourcePixelBufferAttributes: [
-                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                    kCVPixelBufferWidthKey as String: width,
-                    kCVPixelBufferHeightKey as String: height
-                ])
-            guard writer.canAdd(input) else { throw HarnessError.failed }
-            writer.add(input)
-            guard writer.startWriting() else { throw HarnessError.failed }
-            writer.startSession(atSourceTime: .zero)
-            for frame in 0..<(seconds * Int(fps)) {
-                let deadline = Date().addingTimeInterval(15)
-                while !input.isReadyForMoreMediaData, writer.status == .writing, Date() < deadline {
-                    Thread.sleep(forTimeInterval: 0.002)
-                }
-                guard input.isReadyForMoreMediaData, let pool = adaptor.pixelBufferPool else {
-                    throw HarnessError.failed
-                }
-                var pixelBuffer: CVPixelBuffer?
-                CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
-                guard let buffer = pixelBuffer else { throw HarnessError.failed }
-                draw(frame: frame, into: buffer)
-                guard adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: fps))
-                else { throw HarnessError.failed }
-            }
-            input.markAsFinished()
-            let finished = DispatchSemaphore(value: 0)
-            writer.finishWriting { finished.signal() }
-            finished.wait()
-            guard writer.status == .completed else { throw HarnessError.failed }
-            return url
+            try encodeMovie(to: url)
+            let elapsed = String(format: "%.1f", Date().timeIntervalSince(started))
+            logger.notice("follow movie encoded in \(elapsed, privacy: .public) s")
+            return ScreenshotSampleMovie(url: url, failure: nil)
         } catch {
-            Logger(subsystem: "com.hoiekim.turnip", category: "FollowHarness")
-                .error("follow movie encode failed: \(String(describing: error), privacy: .public)")
-            return URL(fileURLWithPath: "/dev/null")
+            let elapsed = String(format: "%.1f", Date().timeIntervalSince(started))
+            let failure = "follow movie encode failed: \(error) after \(elapsed) s"
+            logger.error("\(failure, privacy: .public)")
+            try? FileManager.default.removeItem(at: url)
+            return ScreenshotSampleMovie(url: URL(fileURLWithPath: "/dev/null"), failure: failure)
+        }
+    }
+
+    private static func encodeMovie(to url: URL) throws {
+        try? FileManager.default.removeItem(at: url)
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let width = Int(size.width), height = Int(size.height)
+        let input = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: [
+                AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height
+            ])
+        input.expectsMediaDataInRealTime = false
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: width,
+                kCVPixelBufferHeightKey as String: height
+            ])
+        guard writer.canAdd(input) else { throw ScreenshotMovieError.setupFailed("can't add the video input") }
+        writer.add(input)
+        guard writer.startWriting() else { throw ScreenshotMovieError.writerFailed(step: "start", error: writer.error) }
+        writer.startSession(atSourceTime: .zero)
+        for frame in 0..<(seconds * Int(fps)) {
+            try appendFrame(frame, adaptor: adaptor, input: input, writer: writer)
+        }
+        input.markAsFinished()
+        try finishSampleMovieWriting(writer: writer)
+    }
+
+    private static func appendFrame(
+        _ frame: Int,
+        adaptor: AVAssetWriterInputPixelBufferAdaptor,
+        input: AVAssetWriterInput,
+        writer: AVAssetWriter
+    ) throws {
+        let deadline = Date().addingTimeInterval(15)
+        while !input.isReadyForMoreMediaData, writer.status == .writing, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.002)
+        }
+        guard input.isReadyForMoreMediaData else {
+            throw ScreenshotMovieError.notReady(writer: writer, input: "video", frame: frame)
+        }
+        guard let pool = adaptor.pixelBufferPool else {
+            throw ScreenshotMovieError.writerFailed(step: "pixel buffer pool at frame \(frame)", error: writer.error)
+        }
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
+        guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
+            throw ScreenshotMovieError.setupFailed("pixel buffer at frame \(frame): CVReturn \(status)")
+        }
+        draw(frame: frame, into: buffer)
+        guard adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: fps)) else {
+            throw ScreenshotMovieError.writerFailed(step: "append video frame \(frame)", error: writer.error)
         }
     }
 
@@ -131,9 +156,6 @@ enum FollowHarness {
         }
     }
 
-    private enum HarnessError: Error {
-        case failed
-    }
 }
 
 /// `-screenshotClipEditorFollow`: see `FollowHarness`.
@@ -145,11 +167,12 @@ struct ScreenshotFollowEditorHarness: View {
                     window: FollowHarness.window,
                     cropRect: FollowHarness.cropRect,
                     framingMode: CommandLine.arguments.contains("-follow") ? .follow : .still,
-                    asset: AVURLAsset(url: FollowHarness.movieURL),
+                    asset: AVURLAsset(url: FollowHarness.movie.url),
                     poseFrames: FollowHarness.poseFrames),
                 onCommit: { _ in },
                 onDelete: {})
         }
+        .sampleMovieFailureNote(FollowHarness.movie)
     }
 }
 
@@ -162,10 +185,11 @@ struct ScreenshotFollowClipListHarness: View {
                     ClipListItem(window: FollowHarness.window, cropRect: FollowHarness.cropRect, framingMode: .follow)
                 ],
                 poseFrames: FollowHarness.poseFrames,
-                asset: AVURLAsset(url: FollowHarness.movieURL),
+                asset: AVURLAsset(url: FollowHarness.movie.url),
                 assetIdentifier: "screenshot",
                 duration: Double(FollowHarness.seconds))
         }
+        .sampleMovieFailureNote(FollowHarness.movie)
     }
 }
 #endif
