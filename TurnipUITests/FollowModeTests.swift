@@ -168,9 +168,10 @@ final class FollowModeTests: XCTestCase {
         XCTAssertTrue(waitUntil { self.keyframeCount(in: lane) == 0 })
     }
 
-    /// Following an athlete who stays put leaves one keyframe and says so.
+    /// Following an athlete who stays put leaves one keyframe and says so. The notice stays up
+    /// (`-noticesStay`): on its own timer it can be gone before a loaded runner answers the query.
     func testAnAthleteWhoStaysPutHasNothingToFollow() throws {
-        let app = launchEditor(["-screenshotClipEditor"])
+        let app = launchEditor(["-screenshotClipEditor", "-noticesStay"])
 
         app.segmentedControls["framing-mode-switch"].buttons["Follow"].tap()
 
