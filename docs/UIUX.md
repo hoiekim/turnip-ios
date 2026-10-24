@@ -311,8 +311,8 @@ default empty state, so it never reads as "your library is empty."
   and the gear is a `ScrimIconButton` (`HomeSettingsButton`) in a corner overlay row, level with
   the wordmark. Presented as a sheet, not pushed onto the flow's `NavigationStack`: it has nothing
   to hand back to Home and isn't part of "pick a video, get clips."
-- Five preferences, `UserDefaults`-backed (`Turnip/Settings/TurnipSettingsStore.swift`), each
-  taking effect at its own integration point rather than needing a restart:
+- Five preferences on this screen, `UserDefaults`-backed (`Turnip/Settings/TurnipSettingsStore.swift`),
+  each taking effect at its own integration point rather than needing a restart:
   - **Analysis mode** (segmented Real-time / Offline) — whether the camera scores pose live while
     recording (§1b below) or always defers to Processing (§2). Real-time is the default.
   - **Save to an album**, with a name field shown once it's on — whether Clip List's Save Clips action
@@ -330,7 +330,11 @@ default empty state, so it never reads as "your library is empty."
     keeps either mode, so a clip adjusted in Follow mode still follows. The original tile and a
     "+" clip start in Still, and a clip whose path never moves plays as a still crop in either
     mode.
-- Further settings beyond these five are out of scope for this doc's current revision.
+- A sixth preference lives in the same store but not on this screen: **person mode** (One
+  person / Everyone, default One person), whose tricks a take or an analysis is cut into clips
+  for. It is chosen where it takes effect, on the camera before recording (§1b) and on
+  Processing before "Analyze clips" (§2), and remembered between them.
+- Further settings beyond these six are out of scope for this doc's current revision.
 
 ### 1b. Camera
 
