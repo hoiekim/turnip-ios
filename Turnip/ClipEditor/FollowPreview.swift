@@ -292,15 +292,12 @@ struct EditorPlayerView: View, Animatable {
             placeVideo()
         }
 
-        /// Shows `buffer`, presented at `time`, with the pan for that time, in one transaction.
+        /// Shows `buffer`, presented at `time`, with the pan for that time.
         func show(_ buffer: CVPixelBuffer, at time: TimeInterval) {
             heldBuffers = [buffer] + heldBuffers.prefix(1)
             frameTime = time
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
             videoLayer.contents = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue()
             placeVideo()
-            CATransaction.commit()
             if !hasShownFrame {
                 hasShownFrame = true
                 DispatchQueue.main.async { [weak self] in self?.onReadyForDisplay?() }
@@ -312,18 +309,20 @@ struct EditorPlayerView: View, Animatable {
             placeVideo()
         }
 
+        /// Moves the video layer by the pan for the frame it shows. Never in a transaction of its
+        /// own: an explicit transaction that isn't nested commits on the spot, which can reach the
+        /// screen a refresh ahead of the zoom SwiftUI commits for the same frame. The changes ride
+        /// whatever transaction is open, SwiftUI's own while it calls `update`, and `actions`
+        /// keeps them from animating.
         private func placeVideo() {
             guard let track else { return }
             // A hair past the frame's own time, so a rounding below it never draws the frame
             // with the step before.
             let shift = frameTime.map { pan.shift(at: $0 + 0.0005) } ?? .zero
             let placement = EditorVideoPlacement(track: track, bounds: bounds, shift: shift)
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
             videoLayer.bounds = placement.bounds
             videoLayer.position = placement.position
             videoLayer.setAffineTransform(placement.transform)
-            CATransaction.commit()
         }
     }
 }
