@@ -1,5 +1,12 @@
 # Turnip — UI/UX Flow (v1 MVP)
 
+*Rev 17 · 2026-10-23 · The user chooses whose tricks become clips: the one
+person the pose model is surest of, or everyone it finds, each with clips of
+their own. The choice is a control on the camera (§1b) and a picker above
+"Analyze clips" on Processing (§2), one remembered setting behind both.
+Following everyone, clips of different people can overlap on Clip List (§3),
+each tile's crop showing whose trick it is.*
+
 *Rev 16 · 2026-10-19 · The Clip Editor gets two framing
 modes, Still and Follow, switched by a segmented control in the header's
 title slot (§4). Still mode is today's editor, with the switch in its
@@ -31,7 +38,7 @@ and stays sharp only inside the marker, with the controls on top of the
 glass. The expansion flight shows the crop alone; the frosted frame around it
 appears once the flight lands.*
 
-*(Rev 1 established the five-screen flow and made Home a Photos video gallery. Rev 2 resolves the three open questions into decisions. Rev 3 adds the Settings screen this doc previously scoped out. Rev 4 adds the expansion transition, with the *how* in its own companion doc. Rev 5 adds "A gesture and its button play one animation." Rev 6 replaces the Clip Editor's "Reset crop area" with Auto crop and Auto rotate. Rev 7 adds "An automatic change moves, it never cuts." Rev 8 stops trimming from re-cropping. Rev 9 tightens Auto crop's padding and keeps its crop inside the video. Rev 10 applies that to detection's rects. Rev 11 levels by the take's own roll track, with the picture's horizon as the fallback, and makes Auto crop / Auto rotate toggles with a reset. Rev 12 frosts the editor's surround. Rev 13 gives a hand-added clip Reset crop in place of Auto crop. Rev 14 plans the Profile page and naming in the clip flow. Rev 15 adds Follow the athlete to Settings. Rev 16 adds Still and Follow framing modes to the Clip Editor.)*
+*(Rev 1 established the five-screen flow and made Home a Photos video gallery. Rev 2 resolves the three open questions into decisions. Rev 3 adds the Settings screen this doc previously scoped out. Rev 4 adds the expansion transition, with the *how* in its own companion doc. Rev 5 adds "A gesture and its button play one animation." Rev 6 replaces the Clip Editor's "Reset crop area" with Auto crop and Auto rotate. Rev 7 adds "An automatic change moves, it never cuts." Rev 8 stops trimming from re-cropping. Rev 9 tightens Auto crop's padding and keeps its crop inside the video. Rev 10 applies that to detection's rects. Rev 11 levels by the take's own roll track, with the picture's horizon as the fallback, and makes Auto crop / Auto rotate toggles with a reset. Rev 12 frosts the editor's surround. Rev 13 gives a hand-added clip Reset crop in place of Auto crop. Rev 14 plans the Profile page and naming in the clip flow. Rev 15 adds Follow the athlete to Settings. Rev 16 adds Still and Follow framing modes to the Clip Editor. Rev 17 adds the choice between one person and everyone.)*
 
 Companion to [`DESIGN.md`](DESIGN.md), which specifies the auto-edit *pipeline*
 (pose detection → motion signal → peak detection → crop rect → export), and to
@@ -338,7 +345,15 @@ default empty state, so it never reads as "your library is empty."
   (Info.plist); denied/restricted access shows a message pointing at
   Settings, matching Home's own denied state.
 - While recording, pose inference runs on the live camera frames and the
-  scored skeleton is drawn over the preview (`docs/LIVE_POSE.md`).
+  scored skeleton is drawn over the preview (`docs/LIVE_POSE.md`): the one
+  person followed, or everyone found.
+- A person control leads the top-right group: one figure while the take will
+  be cut into clips for one person (the person the pose model is surest of
+  in each frame), two figures while it will be cut for everyone, each person
+  with clips of their own (`docs/MULTI_PERSON.md`). A tap switches between
+  them. The choice is remembered, and it is the same setting Processing's
+  picker shows (§2). It is read when Record is tapped, so the control is
+  dimmed and disabled while recording, like the format and flip controls.
 - While recording, the phone's roll is written into the take as a timed
   metadata track (`RollTrack`, `RollTrackRecorder`): gravity from the motion
   sensors, sampled 30 times a second and expressed as the horizon's tilt in
@@ -363,9 +378,11 @@ default empty state, so it never reads as "your library is empty."
 - The pipeline does not auto-start, but the picked video does: it fills the
   screen (fit to the screen, no native playback chrome) and starts playing
   automatically on arrival, Photos-app style — no tap needed to see it. A thin
-  scrub bar (play/pause, seek, mute) draws over the bottom, with a large,
-  full-width "Analyze clips" button below it and a quieter "Clip manually"
-  text button under that, in the same bar — black background, no title,
+  scrub bar (play/pause, seek, mute) draws over the bottom, then a segmented
+  picker, "One person | Everyone", for whose tricks the analysis cuts clips
+  for (the same remembered setting as the camera's person control, §1b), with
+  a large, full-width "Analyze clips" button below it and a quieter "Clip
+  manually" text button under that, in the same bar — black background, no title,
   no caption text, back chevron to Home. The user watches the autoplaying
   video, pausing/scrubbing it via the scrub bar if they want, and starts
   analysis when ready — or skips it: "Clip manually" goes straight to Clip
@@ -416,6 +433,10 @@ default empty state, so it never reads as "your library is empty."
   detected trick window, then a trailing "+" tile (grey square, centered plus
   sign) that appends a new full-frame clip at the start of the asset for the
   user to trim.
+- A video analyzed following everyone (§2) has a tile per person's trick, in
+  start order, so two tiles can cover the same moment. Each tile's crop frames
+  its own person, and so do its follow path and the editor's Auto crop and
+  Auto follow; nothing else marks whose clip it is.
 - When an analysis detected zero tricks, this screen still shows — just the
   original tile and the "+" tile — with a dismissible Liquid Glass notice
   ("No tricks found") centered over the top of the grid, tap-to-dismiss or
