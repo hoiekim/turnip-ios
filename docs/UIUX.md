@@ -1,11 +1,17 @@
 # Turnip — UI/UX Flow (v1 MVP)
 
-*Rev 17 · 2026-10-23 · The user chooses whose tricks become clips: the one
+*Rev 18 · 2026-10-23 · The user chooses whose tricks become clips: the one
 person the pose model is surest of, or everyone it finds, each with clips of
 their own. The choice is a control on the camera (§1b) and a picker above
 "Analyze clips" on Processing (§2), one remembered setting behind both.
 Following everyone, clips of different people can overlap on Clip List (§3),
 each tile's crop showing whose trick it is.*
+
+*Rev 17 · 2026-10-22 · Reconciliation (issue #152): the Decisions log's bulk
+keep/discard entry gains its reversal audit trail — the "Select All" /
+"Deselect All" toolbar button shipped on main, then was removed again with
+the keep/discard → trash-toggle change (decision 6). The closed issue links
+(#11, #17, #21) are re-tensed to past tense and kept as provenance.*
 
 *Rev 16 · 2026-10-19 · The Clip Editor gets two framing
 modes, Still and Follow, switched by a segmented control in the header's
@@ -38,7 +44,7 @@ and stays sharp only inside the marker, with the controls on top of the
 glass. The expansion flight shows the crop alone; the frosted frame around it
 appears once the flight lands.*
 
-*(Rev 1 established the five-screen flow and made Home a Photos video gallery. Rev 2 resolves the three open questions into decisions. Rev 3 adds the Settings screen this doc previously scoped out. Rev 4 adds the expansion transition, with the *how* in its own companion doc. Rev 5 adds "A gesture and its button play one animation." Rev 6 replaces the Clip Editor's "Reset crop area" with Auto crop and Auto rotate. Rev 7 adds "An automatic change moves, it never cuts." Rev 8 stops trimming from re-cropping. Rev 9 tightens Auto crop's padding and keeps its crop inside the video. Rev 10 applies that to detection's rects. Rev 11 levels by the take's own roll track, with the picture's horizon as the fallback, and makes Auto crop / Auto rotate toggles with a reset. Rev 12 frosts the editor's surround. Rev 13 gives a hand-added clip Reset crop in place of Auto crop. Rev 14 plans the Profile page and naming in the clip flow. Rev 15 adds Follow the athlete to Settings. Rev 16 adds Still and Follow framing modes to the Clip Editor. Rev 17 adds the choice between one person and everyone.)*
+*(Rev 1 established the five-screen flow and made Home a Photos video gallery. Rev 2 resolves the three open questions into decisions. Rev 3 adds the Settings screen this doc previously scoped out. Rev 4 adds the expansion transition, with the *how* in its own companion doc. Rev 5 adds "A gesture and its button play one animation." Rev 6 replaces the Clip Editor's "Reset crop area" with Auto crop and Auto rotate. Rev 7 adds "An automatic change moves, it never cuts." Rev 8 stops trimming from re-cropping. Rev 9 tightens Auto crop's padding and keeps its crop inside the video. Rev 10 applies that to detection's rects. Rev 11 levels by the take's own roll track, with the picture's horizon as the fallback, and makes Auto crop / Auto rotate toggles with a reset. Rev 12 frosts the editor's surround. Rev 13 gives a hand-added clip Reset crop in place of Auto crop. Rev 14 plans the Profile page and naming in the clip flow. Rev 15 adds Follow the athlete to Settings. Rev 16 adds Still and Follow framing modes to the Clip Editor. Rev 17 reconciles the Decisions log and closed issue links. Rev 18 adds the choice between one person and everyone.)*
 
 Companion to [`DESIGN.md`](DESIGN.md), which specifies the auto-edit *pipeline*
 (pose detection → motion signal → peak detection → crop rect → export), and to
@@ -64,9 +70,9 @@ screens. In practice that behavior needs at least two distinct screens — a
 list/triage view and a per-clip editor — plus states DESIGN.md doesn't
 mention at all: a loading state while the pipeline runs, an empty state when
 no tricks are detected, and a confirmation state after export. Issue
-[#11](https://github.com/hoiekim/turnip-ios/issues/11) currently bundles all
-of this into one "Preview UI" issue; this doc exists to pin the flow down
-before that issue gets split.
+[#11](https://github.com/hoiekim/turnip-ios/issues/11) bundled all
+of this into one "Preview UI" issue; this doc was written to pin the flow down
+before that issue was split and shipped.
 
 ## A gesture and its button play one animation
 
@@ -840,11 +846,15 @@ Resolved 2026-09-04.
    "Auto crop" (Rev 6) is the one tap that refits the framing to the range.*
 2. **Bulk keep/discard → Not in v1.** Every clip defaults to "kept"; a user
    discards by tapping individual cards. At ~10 clips per session that's a
-   few taps. Add "discard all" only if feedback asks for it.
-3. **Cancel during processing → Yes.** Processing (#17) exposes a cancel
+   few taps. Add "discard all" only if feedback asks for it. *Reversal
+   recorded 2026-10-22 (Rev 17, issue #152): a "Select All" / "Deselect All"
+   toolbar button did ship on main, then was removed again 2026-09-22 with
+   the keep/discard → trash-toggle change (decision 6) — the decision stands
+   as recorded.*
+3. **Cancel during processing → Yes.** Processing (#17) shipped a cancel
    action that returns to Home. It's nearly free with structured concurrency
-   (cooperative `Task.isCancelled` checks in the frame-sampler loop, tracked
-   in #21), and users will background or leave the screen anyway — a clean
+   (cooperative `Task.isCancelled` checks in the frame-sampler loop,
+   implemented under #21), and users will background or leave the screen anyway — a clean
    cancel beats a stuck screen. The flow diagram's `Processing → Home` edge
    covers this path.
 4. **Preview framing → Superseded by direct crop editing.** Recorded 2026-09-14
