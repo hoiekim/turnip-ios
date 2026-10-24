@@ -258,6 +258,8 @@ struct EditorPlayerView: View, Animatable {
         private var track: VideoTrackGeometry?
         private var pan = PreviewPanBlend(pans: [:], weights: .zero)
         private var frameTime: TimeInterval?
+        /// The frame still on screen until the shown one's refresh.
+        private var outgoing: OutgoingPreviewFrame?
         /// The frame shown, the one it replaces at its refresh, and the one before, kept until
         /// replaced: the render server may still be drawing an earlier one when the next arrives.
         private var heldBuffers: [CVPixelBuffer] = []
@@ -299,15 +301,15 @@ struct EditorPlayerView: View, Animatable {
         /// and skipped about one 60 fps frame in seven), while one handed over ahead of its refresh
         /// is shown on it.
         func show(_ buffer: CVPixelBuffer, at time: TimeInterval, on refresh: CFTimeInterval) {
-            let previous = (contents: videoLayer.contents, position: videoLayer.position)
+            let now = CACurrentMediaTime()
+            let handOver = refresh - Self.handOverMargin
+            outgoing = videoLayer.contents != nil && handOver - now > Self.handOverMargin
+                ? OutgoingPreviewFrame(contents: videoLayer.contents, time: frameTime, until: handOver)
+                : nil
             heldBuffers = [buffer] + heldBuffers.prefix(2)
             frameTime = time
             videoLayer.contents = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue()
             placeVideo()
-            let now = CACurrentMediaTime()
-            if previous.contents != nil, refresh - now > Self.handOverMargin * 2 {
-                keep(previous, until: refresh - Self.handOverMargin, from: now)
-            }
             if !hasShownFrame {
                 hasShownFrame = true
                 DispatchQueue.main.async { [weak self] in self?.onReadyForDisplay?() }
@@ -317,43 +319,47 @@ struct EditorPlayerView: View, Animatable {
         /// How far ahead of its refresh a frame takes over from the one before.
         private static let handOverMargin: CFTimeInterval = 0.002
 
-        /// Draws `previous` in place of the layer's own contents and position until `end`, both in
-        /// `CACurrentMediaTime()`'s timeline.
-        private func keep(
-            _ previous: (contents: Any?, position: CGPoint), until end: CFTimeInterval, from now: CFTimeInterval
-        ) {
-            let contents = CABasicAnimation(keyPath: "contents")
-            contents.fromValue = previous.contents
-            contents.toValue = previous.contents
-            let position = CABasicAnimation(keyPath: "position")
-            position.fromValue = NSValue(cgPoint: previous.position)
-            position.toValue = NSValue(cgPoint: previous.position)
-            let hold = CAAnimationGroup()
-            hold.animations = [contents, position]
-            hold.beginTime = videoLayer.convertTime(now, from: nil)
-            hold.duration = end - now
-            videoLayer.add(hold, forKey: "previous frame")
-        }
-
         override func layoutSubviews() {
             super.layoutSubviews()
             placeVideo()
         }
 
-        /// Moves the video layer by the pan for the frame it shows. Never in a transaction of its
-        /// own: an explicit transaction that isn't nested commits on the spot, which can reach the
-        /// screen a refresh ahead of the zoom SwiftUI commits for the same frame. The changes ride
-        /// whatever transaction is open, SwiftUI's own while it calls `update`, and `actions`
-        /// keeps them from animating.
+        /// Moves the video layer by the pan for the frame it shows, and the frame still on screen
+        /// until the new one's refresh by the pan for its own time, so an ease keeps moving the
+        /// picture on every refresh between. Never in a transaction of its own: an explicit
+        /// transaction that isn't nested commits on the spot, which can reach the screen a refresh
+        /// ahead of the zoom SwiftUI commits for the same frame. The changes ride whatever
+        /// transaction is open, SwiftUI's own while it calls `update`, and `actions` keeps them
+        /// from animating.
         private func placeVideo() {
             guard let track else { return }
-            // A hair past the frame's own time, so a rounding below it never draws the frame
-            // with the step before.
-            let shift = frameTime.map { pan.shift(at: $0 + 0.0005) } ?? .zero
-            let placement = EditorVideoPlacement(track: track, bounds: bounds, shift: shift)
+            let placement = EditorVideoPlacement(track: track, bounds: bounds, shift: shift(for: frameTime))
             videoLayer.bounds = placement.bounds
             videoLayer.position = placement.position
             videoLayer.setAffineTransform(placement.transform)
+            let now = CACurrentMediaTime()
+            guard let outgoing, outgoing.until > now else {
+                outgoing = nil
+                return
+            }
+            let held = EditorVideoPlacement(track: track, bounds: bounds, shift: shift(for: outgoing.time))
+            let contents = CABasicAnimation(keyPath: "contents")
+            contents.fromValue = outgoing.contents
+            contents.toValue = outgoing.contents
+            let position = CABasicAnimation(keyPath: "position")
+            position.fromValue = NSValue(cgPoint: held.position)
+            position.toValue = NSValue(cgPoint: held.position)
+            let hold = CAAnimationGroup()
+            hold.animations = [contents, position]
+            hold.beginTime = videoLayer.convertTime(now, from: nil)
+            hold.duration = outgoing.until - now
+            videoLayer.add(hold, forKey: "outgoing frame")
+        }
+
+        /// The pan for the frame presented at `time`: a hair past it, so a rounding below the
+        /// frame's own time never draws it with the step before.
+        private func shift(for time: TimeInterval?) -> CGPoint {
+            time.map { pan.shift(at: $0 + 0.0005) } ?? .zero
         }
     }
 }
@@ -375,4 +381,12 @@ struct EditorVideoPlacement: Equatable {
         let turn = track.preferredTransform
         transform = CGAffineTransform(a: turn.a, b: turn.b, c: turn.c, d: turn.d, tx: 0, ty: 0)
     }
+}
+
+/// A preview frame on screen until the next one's refresh (`EditorPlayerView`): its contents, its
+/// presentation time, and when it gives way, in `CACurrentMediaTime()`'s timeline.
+private struct OutgoingPreviewFrame {
+    let contents: Any?
+    let time: TimeInterval?
+    let until: CFTimeInterval
 }
