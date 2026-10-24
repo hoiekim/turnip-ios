@@ -111,7 +111,7 @@ struct PreviewPanBlend: Equatable {
 /// on an iPhone, differently on every ease (`docs/DESIGN.md` step 6, "Editor preview"). Here the
 /// frame due at the next refresh becomes a layer's contents in the same Core Animation transaction
 /// as its pan, and SwiftUI's frame carries the zoom, the turn and the pan's weights, so the whole
-/// picture reaches the screen in one commit.
+/// picture reaches the screen in one commit, on the refresh the frame is due.
 @MainActor
 final class PreviewFrames {
     /// The output's frames are drawn no larger than this on their long side: past it, the preview
@@ -158,7 +158,7 @@ final class PreviewFrames {
         views.removeAll { $0.view == nil || $0.view === view }
         views.append(WeakView(view: view))
         if let latest {
-            view.show(latest.buffer, at: latest.time)
+            view.show(latest.buffer, at: latest.time, on: CACurrentMediaTime())
         }
         startLink()
     }
@@ -191,7 +191,7 @@ final class PreviewFrames {
         else { return }
         latest = (buffer, presentationTime.seconds)
         for entry in views {
-            entry.view?.show(buffer, at: presentationTime.seconds)
+            entry.view?.show(buffer, at: presentationTime.seconds, on: link.targetTimestamp)
         }
     }
 }
@@ -258,8 +258,8 @@ struct EditorPlayerView: View, Animatable {
         private var track: VideoTrackGeometry?
         private var pan = PreviewPanBlend(pans: [:], weights: .zero)
         private var frameTime: TimeInterval?
-        /// The frame shown and the one before it, kept until replaced: the render server may
-        /// still be drawing the earlier one when the next arrives.
+        /// The frame shown, the one it replaces at its refresh, and the one before, kept until
+        /// replaced: the render server may still be drawing an earlier one when the next arrives.
         private var heldBuffers: [CVPixelBuffer] = []
         private var hasShownFrame = false
 
@@ -292,16 +292,47 @@ struct EditorPlayerView: View, Animatable {
             placeVideo()
         }
 
-        /// Shows `buffer`, presented at `time`, with the pan for that time.
-        func show(_ buffer: CVPixelBuffer, at time: TimeInterval) {
-            heldBuffers = [buffer] + heldBuffers.prefix(1)
+        /// Shows `buffer`, presented at `time`, with the pan for that time, from the display refresh
+        /// at `refresh` on. The layer takes the frame at once and keeps the previous one on screen
+        /// until just before that refresh: a frame swapped in as it arrives sometimes reaches the
+        /// screen a refresh late, holding one frame and skipping the next (an iPhone 13 mini held
+        /// and skipped about one 60 fps frame in seven), while one handed over ahead of its refresh
+        /// is shown on it.
+        func show(_ buffer: CVPixelBuffer, at time: TimeInterval, on refresh: CFTimeInterval) {
+            let previous = (contents: videoLayer.contents, position: videoLayer.position)
+            heldBuffers = [buffer] + heldBuffers.prefix(2)
             frameTime = time
             videoLayer.contents = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue()
             placeVideo()
+            let now = CACurrentMediaTime()
+            if previous.contents != nil, refresh - now > Self.handOverMargin * 2 {
+                keep(previous, until: refresh - Self.handOverMargin, from: now)
+            }
             if !hasShownFrame {
                 hasShownFrame = true
                 DispatchQueue.main.async { [weak self] in self?.onReadyForDisplay?() }
             }
+        }
+
+        /// How far ahead of its refresh a frame takes over from the one before.
+        private static let handOverMargin: CFTimeInterval = 0.002
+
+        /// Draws `previous` in place of the layer's own contents and position until `end`, both in
+        /// `CACurrentMediaTime()`'s timeline.
+        private func keep(
+            _ previous: (contents: Any?, position: CGPoint), until end: CFTimeInterval, from now: CFTimeInterval
+        ) {
+            let contents = CABasicAnimation(keyPath: "contents")
+            contents.fromValue = previous.contents
+            contents.toValue = previous.contents
+            let position = CABasicAnimation(keyPath: "position")
+            position.fromValue = NSValue(cgPoint: previous.position)
+            position.toValue = NSValue(cgPoint: previous.position)
+            let hold = CAAnimationGroup()
+            hold.animations = [contents, position]
+            hold.beginTime = videoLayer.convertTime(now, from: nil)
+            hold.duration = end - now
+            videoLayer.add(hold, forKey: "previous frame")
         }
 
         override func layoutSubviews() {
