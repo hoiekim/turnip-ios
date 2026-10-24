@@ -112,11 +112,16 @@ struct PreviewPanBlend: Equatable {
 /// frame due at the next refresh becomes a layer's contents in the same Core Animation transaction
 /// as its pan, and SwiftUI's frame carries the zoom, the turn and the pan's weights, so the whole
 /// picture reaches the screen in one commit, on the refresh the frame is due.
+///
+/// The frames keep the source's colour: an HLG take's stay HLG, and the layer tone maps them for
+/// the standard-range display itself, with shadows and midtones about a tenth darker than the
+/// player layer showed them (iPhone 13 mini; highlights and colour unchanged). An SDR take looks
+/// the same either way.
 @MainActor
 final class PreviewFrames {
-    /// The output's frames are drawn no larger than this on their long side: past it, the preview
-    /// can't show the detail at the editor's zoom range, and the buffers are held in the app.
-    static let maximumDimension: CGFloat = 1920
+    /// The frames are drawn no larger than this on their long side: past it, the preview can't
+    /// show the detail at the editor's zoom range, and the buffers are held in the app.
+    nonisolated static let maximumDimension: CGFloat = 1920
 
     /// The frame shown now, and its presentation time on the item's clock.
     private(set) var latest: (buffer: CVPixelBuffer, time: TimeInterval)?
@@ -129,29 +134,43 @@ final class PreviewFrames {
         weak var view: EditorPlayerView.PlayerContainerView?
     }
 
-    /// Takes frames from `item` from now on, at `naturalSize` (the encoded frame's, in pixels)
-    /// scaled within `maximumDimension`.
-    func attach(to item: AVPlayerItem, naturalSize: CGSize) {
+    /// Takes frames from `item` from now on, as its video composition draws them
+    /// (`composition(track:trackID:duration:frameRate:)`).
+    func attach(to item: AVPlayerItem) {
         if let output, let attached = self.item {
             attached.remove(output)
         }
         self.item = item
-        let scale = min(1, Self.maximumDimension / max(naturalSize.width, naturalSize.height, 1))
-        var settings: [String: any Sendable] = [
+        let output = AVPlayerItemVideoOutput(outputSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferIOSurfacePropertiesKey as String: [String: any Sendable](),
-            // Rec. 709 only, so an HDR take arrives tone mapped to SDR, as the app's other players
-            // show it (`AVPlayerItem(sdrAsset:)`).
-            AVVideoAllowWideColorKey: false
-        ]
-        if scale < 1 {
-            settings[kCVPixelBufferWidthKey as String] = Int((naturalSize.width * scale).rounded())
-            settings[kCVPixelBufferHeightKey as String] = Int((naturalSize.height * scale).rounded())
-        }
-        let output = AVPlayerItemVideoOutput(outputSettings: settings)
+            kCVPixelBufferIOSurfacePropertiesKey as String: [String: any Sendable]()
+        ])
         item.add(output)
         self.output = output
         latest = nil
+    }
+
+    /// The editor item's video composition: each frame turned upright and drawn at its displayed
+    /// size, within `maximumDimension`, on the source's own frame times. It never changes with the
+    /// framing, so it never has to be swapped on a playing item.
+    nonisolated static func composition(
+        track: VideoTrackGeometry, trackID: CMPersistentTrackID, duration: CMTime, frameRate: Double
+    ) -> AVVideoComposition {
+        let size = track.displayedSize
+        let scale = min(1, maximumDimension / max(size.width, size.height, 1))
+        let composition = AVMutableVideoComposition()
+        composition.renderSize = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        composition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(max(frameRate.rounded(), 1)))
+        composition.sourceTrackIDForFrameTiming = trackID
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
+        let layerInstruction = AVMutableVideoCompositionLayerInstruction()
+        layerInstruction.trackID = trackID
+        layerInstruction.setTransform(
+            track.uprightTransform.concatenating(CGAffineTransform(scaleX: scale, y: scale)), at: .zero)
+        instruction.layerInstructions = [layerInstruction]
+        composition.instructions = [instruction]
+        return composition
     }
 
     func register(_ view: EditorPlayerView.PlayerContainerView) {
@@ -269,7 +288,7 @@ struct EditorPlayerView: View, Animatable {
             self.frames = frames
             super.init(frame: .zero)
             videoLayer.contentsGravity = .resize
-            videoLayer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "transform": NSNull()]
+            videoLayer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
             layer.addSublayer(videoLayer)
         }
 
@@ -336,7 +355,6 @@ struct EditorPlayerView: View, Animatable {
             let placement = EditorVideoPlacement(track: track, bounds: bounds, shift: shift(for: frameTime))
             videoLayer.bounds = placement.bounds
             videoLayer.position = placement.position
-            videoLayer.setAffineTransform(placement.transform)
             let now = CACurrentMediaTime()
             guard let outgoing, outgoing.until > now else {
                 outgoing = nil
@@ -364,22 +382,18 @@ struct EditorPlayerView: View, Animatable {
     }
 }
 
-/// Where the editor's video layer goes in its view: the encoded frame, at the view's points per
-/// displayed pixel, turned upright about its center by the track's own transform, centered on
-/// the view moved by `shift` (displayed pixels), so the unshifted upright frame fills `bounds`.
+/// Where the editor's video layer goes in its view: the upright frame (as the item's composition
+/// draws it) the size of the view, moved by `shift` (displayed pixels) at the view's points per
+/// displayed pixel, so the unshifted frame fills the view's bounds.
 struct EditorVideoPlacement: Equatable {
     let bounds: CGRect
     let position: CGPoint
-    let transform: CGAffineTransform
 
     init(track: VideoTrackGeometry, bounds viewBounds: CGRect, shift: CGPoint) {
         let displayed = track.displayedSize
         let scale = displayed.width > 0 ? viewBounds.width / displayed.width : 0
-        bounds = CGRect(
-            x: 0, y: 0, width: track.naturalSize.width * scale, height: track.naturalSize.height * scale)
+        bounds = CGRect(origin: .zero, size: viewBounds.size)
         position = CGPoint(x: viewBounds.midX + shift.x * scale, y: viewBounds.midY + shift.y * scale)
-        let turn = track.preferredTransform
-        transform = CGAffineTransform(a: turn.a, b: turn.b, c: turn.c, d: turn.d, tx: 0, ty: 0)
     }
 }
 

@@ -1,9 +1,10 @@
-import QuartzCore
+import AVFoundation
 import XCTest
 @testable import Turnip
 
 /// The editor's follow preview: the pan a blend of generations draws for a frame, the weights
-/// SwiftUI animates between them, and where the video layer puts a frame of each orientation.
+/// SwiftUI animates between them, where the video layer goes, and the composition that draws the
+/// frames upright.
 final class FollowPreviewTests: XCTestCase {
     /// A pan that moves the picture 200 px left between 1 s and 2 s, one step per 30 fps frame.
     private let pan: FollowPan = {
@@ -98,12 +99,22 @@ final class FollowPreviewTests: XCTestCase {
         }
     }
 
-    /// The video layer turns the encoded frame upright by the track's own transform and fills the
-    /// view with it, shifted by the pan at the view's points per displayed pixel: every corner of
-    /// the encoded frame lands where the upright transform puts it, for each orientation a
-    /// camera writes, mirrored included.
-    func testTheVideoLayerFillsTheViewUprightInEveryOrientation() {
-        let natural = CGSize(width: 1920, height: 1080)
+    /// The video layer is the view's size, so the upright frame fills it, moved by the pan at the
+    /// view's points per displayed pixel.
+    func testTheVideoLayerFillsTheViewMovedByThePan() {
+        let track = VideoTrackGeometry(
+            naturalSize: CGSize(width: 1920, height: 1080),
+            preferredTransform: CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 1080, ty: 0))
+        let view = CGRect(x: 0, y: 0, width: 270, height: 480)
+        let placement = EditorVideoPlacement(track: track, bounds: view, shift: CGPoint(x: 40, y: -12))
+        XCTAssertEqual(placement.bounds, CGRect(x: 0, y: 0, width: 270, height: 480))
+        XCTAssertEqual(placement.position.x, 135 + 40 * 0.25, accuracy: 1e-9)
+        XCTAssertEqual(placement.position.y, 240 - 12 * 0.25, accuracy: 1e-9)
+    }
+
+    /// The editor item's composition turns every orientation a camera writes upright, mirrored
+    /// included, and draws a frame larger than the cap scaled down to it.
+    func testTheCompositionDrawsEveryOrientationUprightWithinTheCap() throws {
         let transforms: [CGAffineTransform] = [
             .identity,
             CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 1080, ty: 0),
@@ -111,27 +122,29 @@ final class FollowPreviewTests: XCTestCase {
             CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: 1920),
             CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 1920, ty: 0)
         ]
-        for transform in transforms {
-            let track = VideoTrackGeometry(naturalSize: natural, preferredTransform: transform)
-            let displayed = track.displayedSize
-            let viewBounds = CGRect(x: 0, y: 0, width: displayed.width / 4, height: displayed.height / 4)
-            let shift = CGPoint(x: 40, y: -12)
-            let placement = EditorVideoPlacement(track: track, bounds: viewBounds, shift: shift)
-            let view = CALayer()
-            view.bounds = viewBounds
-            let video = CALayer()
-            video.bounds = placement.bounds
-            video.position = placement.position
-            video.setAffineTransform(placement.transform)
-            view.addSublayer(video)
-            let corners = [CGPoint.zero, CGPoint(x: natural.width, y: 0), CGPoint(x: 0, y: natural.height),
-                           CGPoint(x: natural.width, y: natural.height)]
-            for corner in corners {
-                let onLayer = CGPoint(x: corner.x / 4, y: corner.y / 4)
-                let landed = video.convert(onLayer, to: view)
-                let upright = corner.applying(track.uprightTransform)
-                XCTAssertEqual(landed.x, (upright.x + shift.x) / 4, accuracy: 1e-6, "\(transform) \(corner)")
-                XCTAssertEqual(landed.y, (upright.y + shift.y) / 4, accuracy: 1e-6, "\(transform) \(corner)")
+        for (natural, scale) in [(CGSize(width: 1920, height: 1080), 1.0), (CGSize(width: 3840, height: 2160), 0.5)] {
+            for base in transforms {
+                // The same turn for a frame of this size.
+                let transform = CGAffineTransform(
+                    a: base.a, b: base.b, c: base.c, d: base.d,
+                    tx: base.tx * natural.width / 1920, ty: base.ty * natural.width / 1920)
+                let track = VideoTrackGeometry(naturalSize: natural, preferredTransform: transform)
+                let composition = PreviewFrames.composition(
+                    track: track, trackID: 1, duration: CMTime(value: 6, timescale: 1), frameRate: 30)
+                let displayed = track.displayedSize
+                XCTAssertEqual(composition.renderSize.width, displayed.width * scale, accuracy: 1)
+                XCTAssertEqual(composition.renderSize.height, displayed.height * scale, accuracy: 1)
+                let instruction = try XCTUnwrap(composition.instructions.first as? AVVideoCompositionInstruction)
+                let layer = try XCTUnwrap(instruction.layerInstructions.first)
+                var start = CGAffineTransform.identity, end = CGAffineTransform.identity
+                var range = CMTimeRange.zero
+                XCTAssertTrue(layer.getTransformRamp(for: .zero, start: &start, end: &end, timeRange: &range))
+                for corner in [CGPoint.zero, CGPoint(x: natural.width, y: natural.height)] {
+                    let drawn = corner.applying(start)
+                    let upright = corner.applying(track.uprightTransform)
+                    XCTAssertEqual(drawn.x, upright.x * scale, accuracy: 1e-6, "\(transform) \(corner)")
+                    XCTAssertEqual(drawn.y, upright.y * scale, accuracy: 1e-6, "\(transform) \(corner)")
+                }
             }
         }
     }

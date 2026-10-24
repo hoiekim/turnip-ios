@@ -135,6 +135,8 @@ final class ClipEditorViewModel: ObservableObject {
     private var supersededPreviewGenerations: [Int: CFTimeInterval] = [:]
     /// The editor's frames, for the views that show them.
     let previewFrames = PreviewFrames()
+    /// The editor item's composition (`PreviewFrames.composition`), once the track is read.
+    private var previewComposition: AVVideoComposition?
     /// A Follow drag's live move, in displayed pixels (`previewFollowDrag`).
     private var followDragShift: CGPoint = .zero
     /// Set when Auto follow found nothing that moves, so the view can say why the crop holds
@@ -324,6 +326,15 @@ final class ClipEditorViewModel: ObservableObject {
             naturalSize: naturalSize,
             preferredTransform: preferredTransform,
             frameRate: frameRate > 0 ? frameRate : 30)
+        if previewComposition == nil {
+            previewComposition = PreviewFrames.composition(
+                track: VideoTrackGeometry(naturalSize: naturalSize, preferredTransform: preferredTransform),
+                trackID: track.trackID, duration: assetDuration, frameRate: frameRate > 0 ? frameRate : 30)
+        }
+        // The frames come upright only through the composition.
+        if let item = player.currentItem, item.videoComposition == nil {
+            item.videoComposition = previewComposition
+        }
         if isPlaybackReleased {
             startPreview()
         } else {
@@ -345,12 +356,26 @@ final class ClipEditorViewModel: ObservableObject {
     func holdPlayback(at time: TimeInterval) async {
         isPlaybackReleased = false
         isPresenterScrubbing = true
-        if player.currentItem == nil {
-            let track = try? await source.asset.loadTracks(withMediaType: .video).first
-            armPlayer(naturalSize: try? await track?.load(.naturalSize))
+        if player.currentItem == nil, previewComposition == nil {
+            previewComposition = await loadPreviewComposition()
         }
+        armPlayer()
         player.pause()
         await scrub(to: time)
+    }
+
+    /// The editor item's composition, read from the asset's video track ahead of `prepare()` for
+    /// a presenter's opening flight; `nil` if the track can't be read.
+    private func loadPreviewComposition() async -> AVVideoComposition? {
+        guard let track = try? await source.asset.loadTracks(withMediaType: .video).first,
+              let duration = try? await source.asset.load(.duration), duration.isValid,
+              let (naturalSize, transform, frameRate) = try? await track.load(
+                  .naturalSize, .preferredTransform, .nominalFrameRate),
+              naturalSize.width > 0, naturalSize.height > 0
+        else { return nil }
+        return PreviewFrames.composition(
+            track: VideoTrackGeometry(naturalSize: naturalSize, preferredTransform: transform),
+            trackID: track.trackID, duration: duration, frameRate: frameRate > 0 ? Double(frameRate) : 30)
     }
 
     /// Ends `holdPlayback(at:)`'s hold: starts the preview loop from the window's start if
@@ -1212,14 +1237,14 @@ final class ClipEditorViewModel: ObservableObject {
         isPlaying = true
     }
 
-    /// Attaches the asset's item with the frame output the preview shows (`PreviewFrames`), the
-    /// periodic observer and the end-of-item observer, once each — everything the preview loop
-    /// needs short of seeking and playing. `naturalSize` is the encoded frame's, when media info
-    /// hasn't loaded yet.
-    private func armPlayer(naturalSize: CGSize? = nil) {
+    /// Attaches the asset's item, with its composition and the frame output the preview shows
+    /// (`PreviewFrames`), the periodic observer and the end-of-item observer, once each —
+    /// everything the preview loop needs short of seeking and playing.
+    private func armPlayer() {
         if player.currentItem == nil {
             let item = AVPlayerItem(sdrAsset: source.asset)
-            previewFrames.attach(to: item, naturalSize: naturalSize ?? trackGeometry?.naturalSize ?? .zero)
+            item.videoComposition = previewComposition
+            previewFrames.attach(to: item)
             player.replaceCurrentItem(with: item)
         }
         if timeObserver == nil {
