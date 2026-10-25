@@ -253,12 +253,19 @@ re-runs after every save and every rebuild.
 - **Name ranking.** Leave-one-out over the newest 50 named clips that
   have an embedding, with at least 10. For each held-out clip, the
   prototypes are rebuilt without it. That is cheap: subtract its
-  embedding from its names' sums. The check is whether any of the
-  clip's names appears in tier 2. The central side is the ranking the
-  naming screen would show without the layer (`MODEL_CONTRACT.md`
-  §3.3 step 4); a name it does not rank, such as one outside the
-  vocabulary, is a miss. Tier 2 is used when its top-3 hit rate is
-  higher than the central side's.
+  embedding from its names' sums. Both sides are cut at three names.
+  The personal side is tier 2's three. The central side is the central
+  model's three highest-scoring names for the clip, which is
+  `MODEL_CONTRACT.md` §3.3 step 4's ranking with combos split into
+  their names. A held-out clip is a hit for a side when any of its
+  names is among that side's three, and each clip counts once,
+  however many names it has. A name the central model cannot output,
+  such as one outside the vocabulary, can never be a central hit.
+  Tier 1 is left out of both sides, since it is the same with or
+  without the layer. Tier 2 is used when its hit rate is higher than
+  the central side's; a tie leaves it off, because it would add
+  nothing. *(Judgment call on the cutoff and on counting a clip
+  once.)*
 - **Keep layer.** Hold out the newest 20% of labeled band segments, at
   least five, and fit on the rest. The layer passes when its log loss
   on the held-out segments is lower than the central prior's (`p = s`).
