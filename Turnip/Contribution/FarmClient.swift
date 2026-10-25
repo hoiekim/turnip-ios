@@ -79,15 +79,16 @@ struct FarmClient: Sendable {
         try await decode(send("POST", "api/sources", body: registration, session: session))
     }
 
-    /// PUTs the gzipped TKP1 blob to the presigned staging URL. The SHA-256 checksum header is
-    /// the transport-integrity layer: R2 refuses bytes that don't match it.
+    /// PUTs the gzipped TKP1 blob to the presigned staging URL. `Content-MD5` is the
+    /// transport-integrity layer: R2 refuses bytes that don't match it. Of the two checksum headers
+    /// the farm allows, it is the one that needs no signing: the URL signs only `host`, and an
+    /// S3-compatible store may refuse an `x-amz-*` header its signature doesn't cover.
     func uploadPose(_ blob: Data, to url: URL) async throws {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.httpBody = blob
         request.setValue("application/gzip", forHTTPHeaderField: "Content-Type")
-        request.setValue(
-            Data(SHA256.hash(data: blob)).base64EncodedString(), forHTTPHeaderField: "x-amz-checksum-sha256")
+        request.setValue(Data(Insecure.MD5.hash(data: blob)).base64EncodedString(), forHTTPHeaderField: "Content-MD5")
         let (_, response) = try await transport(request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else { throw FarmError.http(status: status) }

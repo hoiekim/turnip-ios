@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import Turnip
 
@@ -183,7 +184,11 @@ final class FarmClientTests: XCTestCase {
         ])
         let put = farm.requests[1]
         XCTAssertEqual(put.value(forHTTPHeaderField: "Content-Type"), "application/gzip")
-        XCTAssertNotNil(put.value(forHTTPHeaderField: "x-amz-checksum-sha256"))
+        // MD5, not an `x-amz-checksum-*` header, which the presigned URL doesn't sign.
+        XCTAssertEqual(
+            put.value(forHTTPHeaderField: "Content-MD5"),
+            Data(Insecure.MD5.hash(data: try XCTUnwrap(put.httpBody))).base64EncodedString())
+        XCTAssertNil(put.value(forHTTPHeaderField: "x-amz-checksum-sha256"))
         let key = try XCTUnwrap(credentials.sourceKey(for: Self.videoID))
         XCTAssertEqual(key.count, 43)
         XCTAssertEqual(try json(farm.requests[0])["source_key"] as? String, key)
