@@ -42,7 +42,9 @@ sequences, never from video.
   source key in the Keychain (`AfterFirstUnlockThisDeviceOnly`), sign-out,
   and account deletion that deletes every keyed source first. The Apple
   credential state is checked on every foreground; a revoked or missing
-  credential signs out, and so does any `401`.
+  credential signs out, and so does any `401`. The simulator skips that
+  check: it is never a trusted device, and Apple reports every credential
+  there as revoked, a just-issued one included.
 - **`video_id`** (§1.1) for Photos-backed videos, `VideoIdentity`.
 - **The contribute toggle** on Name Clips and **the confirmation sheet**
   (§3.3), which opens once the save finishes, with the clips and their

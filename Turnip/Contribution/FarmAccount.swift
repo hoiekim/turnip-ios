@@ -109,12 +109,21 @@ final class FarmAccount: ObservableObject {
 
     /// Launch and foreground check (`BACKEND_DESIGN.md` §7.1): a revoked or vanished Apple
     /// credential ends the farm session too.
+    ///
+    /// Skipped on the simulator, which is never a trusted device: Apple answers `.revoked` there
+    /// for every credential, the one it issued a second earlier included, so the check would sign
+    /// out every sign-in as the sheet closes. A real revocation still ends the session there: Apple
+    /// tells the farm, the farm drops the session, and the next call's `401` signs the app out.
     func verifyAppleCredential() async {
+        #if targetEnvironment(simulator)
+        return
+        #else
         guard isSignedIn, let userID = credentials.appleUserID else { return }
         let state = try? await ASAuthorizationAppleIDProvider().credentialState(forUserID: userID)
         if state == .revoked || state == .notFound {
             await signOut()
         }
+        #endif
     }
 }
 
