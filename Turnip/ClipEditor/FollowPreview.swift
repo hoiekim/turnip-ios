@@ -151,11 +151,15 @@ final class PreviewFrames {
     }
 
     /// The editor item's video composition: each frame turned upright and drawn at its displayed
-    /// size, within `maximumDimension`, on the source's own frame times, and from iOS 18 an HDR
-    /// frame tone mapped to standard range (`PreviewCompositor`). It never changes with the
+    /// size, within `maximumDimension`, on the source's own frame times. It never changes with the
     /// framing, so it never has to be swapped on a playing item.
+    ///
+    /// An HDR track's frames are tone mapped to standard range from iOS 18 (`PreviewCompositor`).
+    /// That compositor runs in the app, so its frames count against the app's memory (about 140 MB
+    /// for a 1080p HLG take on an iPhone 13 mini, against 48 MB without it); an SDR track, which
+    /// looks the same either way, draws through the system's own compositor outside the app.
     nonisolated static func composition(
-        track: VideoTrackGeometry, trackID: CMPersistentTrackID, duration: CMTime, frameRate: Double
+        track: VideoTrackGeometry, trackID: CMPersistentTrackID, duration: CMTime, frameRate: Double, isHDR: Bool
     ) -> AVVideoComposition {
         let size = track.displayedSize
         let scale = min(1, maximumDimension / max(size.width, size.height, 1))
@@ -164,7 +168,7 @@ final class PreviewFrames {
         composition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(max(frameRate.rounded(), 1)))
         composition.sourceTrackIDForFrameTiming = trackID
         let timeRange = CMTimeRange(start: .zero, duration: duration)
-        if #available(iOS 18.0, *) {
+        if #available(iOS 18.0, *), isHDR {
             composition.customVideoCompositorClass = PreviewCompositor.self
             composition.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
             composition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
