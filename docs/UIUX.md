@@ -13,7 +13,7 @@ well as the position (§4, "Zoom and turn by keyframe"). Pinch and two-finger
 rotate set the keyframe at the playhead the way a drag does, and a long press
 on a diamond can give every keyframe its zoom and turn. Auto follow zooms with
 the athlete, keeping the still crop's padding and never tighter than a crop
-1,024 source pixels on its longer side, and writes one turn for the whole clip.
+768 source pixels on its longer side, and writes one turn for the whole clip.
 Decision 8 records the change.*
 
 *Rev 18 · 2026-10-23 · The user chooses whose tricks become clips: the one
@@ -865,15 +865,17 @@ default empty state, so it never reads as "your library is empty."
         changes, and closes in more slowly than it opens. So it changes as the
         athlete comes toward the camera or moves away, not with every tuck and
         extension, which is the breathing that kept the zoom clip-wide until
-        now. It never zooms tighter than a crop whose longer side is 1,024
+        now. It never zooms tighter than a crop whose longer side is 768
         source pixels, or the frame's own longer side when that is shorter:
         export enlarges a tighter crop to the clip's output size, and the
         picture goes soft. It never zooms wider than the frame. Where a crop
         whose zoom and position both change would show beyond the frame between
-        two keyframes, it adds a keyframe. The 1,024 pixel floor bounds only what
-        Auto follow chooses. On 1080p takes the floor decides most clips:
-        unless the athlete is near, Auto follow frames a region 1,024 pixels
-        tall and holds that zoom (`DESIGN.md` step 6, "Zoom tuning").
+        two keyframes, it adds a keyframe. The 768 pixel floor bounds only what
+        Auto follow chooses. On 1080p takes the floor still decides many clips:
+        when the athlete is far, Auto follow frames a region 768 pixels tall
+        and holds that zoom, a little looser than the old clip-wide zoom and
+        less enlarged (`DESIGN.md` step 6, "Zoom tuning"). The floor was 1,024
+        pixels at first, which held almost every 1080p clip at one looser zoom.
       - **Trim.** A follow crop that is still all Auto follow's re-tracks a
         trimmed window's positions and zoom, at the same turn (above).
 
@@ -1005,7 +1007,8 @@ Resolved 2026-09-04.
    and rotate join the drag in setting the playhead's keyframe, so the three
    gestures mean one thing, and "Apply zoom and turn to all keyframes" keeps a
    way to change the whole clip at once. Auto follow never zooms tighter than
-   a crop 1,024 source pixels on its longer side, because export enlarges
-   anything tighter. The rendering worry no longer applies: export draws one
+   a crop 768 source pixels on its longer side, because export enlarges
+   anything tighter; 1,024, the first floor, held almost every 1080p clip at
+   one zoom looser than before. The rendering worry no longer applies: export draws one
    transform per frame, so a turn that changes between keyframes is drawn
    exactly at every frame.*

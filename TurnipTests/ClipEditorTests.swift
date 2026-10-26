@@ -1392,7 +1392,7 @@ final class ClipEditorTests: XCTestCase {
         XCTAssertFalse(viewModel.isAutoFollowApplied)
     }
 
-    /// A pinch keeps the editor's own zoom range: the 1,024 pixel floor is only Auto follow's.
+    /// A pinch keeps the editor's own zoom range: the pixel floor is only Auto follow's.
     @MainActor
     func testAPinchInFollowKeepsTheEditorsZoomRange() throws {
         let viewModel = makeFollowViewModel(framingMode: .follow, followCrop: handFollowCrop())

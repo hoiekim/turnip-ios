@@ -202,7 +202,7 @@ final class FollowCropTests: XCTestCase {
     }
 
     /// An athlete who stays put leaves nothing to follow: one keyframe, framed as Auto crop
-    /// would frame the window, here widened to Auto follow's floor: a region 1,024 px tall.
+    /// would frame the window, here widened to Auto follow's floor: a region 768 px tall.
     func testAutoFollowOnAStandingAthleteIsOneKeyframe() throws {
         let frames = (0..<30).map {
             PoseFixture.frame(index: $0, hip: (x: 0.5, y: 0.6), upperBody: (x: 0.5, y: 0.3))
@@ -215,12 +215,14 @@ final class FollowCropTests: XCTestCase {
 
         XCTAssertFalse(fit.moves)
         XCTAssertEqual(fit.crop.keyframes.count, 1)
-        // The full frame's marker box is 1920 wide; the floor's region is 576 × 1024.
-        XCTAssertGreaterThan(autoCrop.scale, 1920 / 576, "Auto crop alone would frame tighter than the floor")
-        XCTAssertEqual(fit.crop.keyframes[0].scale, 1920 / 576, accuracy: 1e-9)
-        let center = FramingConversion.followCenter(of: autoCrop, cropCenter: CGPoint(x: 960, y: 540))
+        // The full frame's marker box is 1920 wide; the floor's region is 432 × 768.
+        XCTAssertGreaterThan(autoCrop.scale, 1920 / 432, "Auto crop alone would frame tighter than the floor")
+        XCTAssertEqual(fit.crop.keyframes[0].scale, 1920 / 432, accuracy: 1e-9)
+        let center = AutoFollow.slidIntoFrame(
+            FramingConversion.followCenter(of: autoCrop, cropCenter: CGPoint(x: 960, y: 540)),
+            box: CGSize(width: 432, height: 768), rotationRadians: 0, in: landscape)
         XCTAssertEqual(fit.crop.keyframes[0].center.x, center.x, accuracy: 1e-6)
-        XCTAssertEqual(fit.crop.keyframes[0].center.y, 512, accuracy: 1e-6, "slid down into the frame")
+        XCTAssertEqual(fit.crop.keyframes[0].center.y, center.y, accuracy: 1e-6)
     }
 
     // MARK: - AutoFollow's zoom
@@ -280,7 +282,7 @@ final class FollowCropTests: XCTestCase {
         let needs = follower.pathCalculator.athletes(for: frames, renderedPixelSize: fourK)
             .map { $0.map { CGFloat($0.room.maxX - $0.room.minX) * fourK.width } }
         let expected = follower.zoom.widths(times: frames.map(\.timestamp), needs: needs)
-            .map { min(max($0, 576), 1215) }
+            .map { min(max($0, follower.tightestLongerSide * 9 / 16), 1215) }
         let marker = ClipEditorViewModel.markerBox(around: fourKFrame, aspectRatio: 9.0 / 16.0)
         let path = fit.crop.path
         for (frame, width) in zip(frames, expected) {
@@ -304,18 +306,20 @@ final class FollowCropTests: XCTestCase {
         XCTAssertTrue(Set(fit.crop.keyframes.map(\.center)).count == 1, "the center never moves")
     }
 
-    /// However small the athlete, Auto follow never frames a region shorter than 1,024 source
-    /// pixels on its longer side: export would enlarge it and it would go soft.
+    /// However small the athlete, Auto follow never frames a region shorter than 768 source pixels
+    /// on its longer side: export would enlarge it further and it would go soft.
     func testAutoFollowNeverZoomsTighterThanTheFloor() throws {
         let frames = athlete(seconds: 3, x: { time in Float(0.3 + 0.1 * time) }, height: { _ in 0.1 })
 
-        let fit = try XCTUnwrap(AutoFollow().fit(
+        let follower = AutoFollow()
+        let fit = try XCTUnwrap(follower.fit(
             frames: frames, cropRect: fourKFrame, videoSize: fourK, rotationRadians: 0))
 
+        XCTAssertEqual(follower.tightestLongerSide, 768)
         let marker = ClipEditorViewModel.markerBox(around: fourKFrame, aspectRatio: 9.0 / 16.0)
         for time in stride(from: 0.0, through: 3, by: 0.05) {
             let width = marker.width / fit.crop.path.framing(at: time).scale
-            XCTAssertGreaterThanOrEqual(width, 1024 * 9 / 16 - 0.01, "at \(time) s")
+            XCTAssertGreaterThanOrEqual(width, 768 * 9 / 16 - 0.01, "at \(time) s")
         }
     }
 

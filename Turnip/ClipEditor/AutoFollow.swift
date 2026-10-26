@@ -18,12 +18,11 @@ struct AutoFollow {
     /// How far the curve may stray from a sample's own center, as a fraction of the crop's
     /// width, before a keyframe goes in at that sample.
     static let driftTolerance: CGFloat = 0.1
+    var pathCalculator = CropPathCalculator()
     /// The tightest crop Auto follow chooses, as the longer side of the source region it shows,
     /// in displayed pixels: export renders a follow clip at its crop rect's size, so a tighter
     /// region is enlarged into it and goes soft. A pinch isn't bound by it.
-    static let tightestLongerSide: CGFloat = 1024
-
-    var pathCalculator = CropPathCalculator()
+    var tightestLongerSide: CGFloat = 768
     /// The marker's width over height, which the follow crop's box keeps.
     var aspectRatio = CGFloat(CropRectCalculator().targetAspectRatio)
     var zoom = ZoomEnvelope()
@@ -52,7 +51,7 @@ struct AutoFollow {
         guard marker.width > 0, marker.height > 0 else { return nil }
         let ratio = marker.width / marker.height
         let widest = Self.widestFitting(ratio: ratio, rotationRadians: rotationRadians, in: videoSize)
-        let tightest = min(Self.tightestLongerSide / max(1, 1 / ratio), widest)
+        let tightest = min(tightestLongerSide / max(1, 1 / ratio), widest)
         let samples = samples(
             of: path, frames: sorted, marker: marker, widths: tightest...widest, rotationRadians: rotationRadians,
             videoSize: videoSize)
