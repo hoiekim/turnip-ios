@@ -113,19 +113,30 @@ final class FollowPreviewTests: XCTestCase {
         XCTAssertEqual(placement.position.y, 240 - 12 * 0.25, accuracy: 1e-9)
     }
 
-    /// The editor item's composition draws a frame larger than the cap scaled down to it, through
-    /// the compositor from iOS 18.
+    /// The editor item's composition draws a frame larger than the cap scaled down to it, and only
+    /// an HDR track's through the tone mapping compositor, from iOS 18.
     func testTheCompositionDrawsWithinTheCap() throws {
         let turn = CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 1080, ty: 0)
         for (natural, scale) in [(CGSize(width: 1920, height: 1080), 1.0), (CGSize(width: 3840, height: 2160), 0.5)] {
             let transform = CGAffineTransform(
                 a: turn.a, b: turn.b, c: turn.c, d: turn.d, tx: turn.tx * natural.width / 1920, ty: 0)
             let track = VideoTrackGeometry(naturalSize: natural, preferredTransform: transform)
-            let composition = PreviewFrames.composition(
-                track: track, trackID: 1, duration: CMTime(value: 6, timescale: 1), frameRate: 30)
-            XCTAssertEqual(composition.renderSize.width, track.displayedSize.width * scale, accuracy: 1)
-            XCTAssertEqual(composition.renderSize.height, track.displayedSize.height * scale, accuracy: 1)
-            if #available(iOS 18.0, *) {
+            for isHDR in [false, true] {
+                let composition = PreviewFrames.composition(
+                    track: track, trackID: 1, duration: CMTime(value: 6, timescale: 1), frameRate: 30, isHDR: isHDR)
+                XCTAssertEqual(composition.renderSize.width, track.displayedSize.width * scale, accuracy: 1)
+                XCTAssertEqual(composition.renderSize.height, track.displayedSize.height * scale, accuracy: 1)
+                guard #available(iOS 18.0, *), isHDR else {
+                    XCTAssertNil(composition.customVideoCompositorClass)
+                    let instruction = try XCTUnwrap(composition.instructions.first as? AVVideoCompositionInstruction)
+                    var start = CGAffineTransform.identity, end = CGAffineTransform.identity
+                    var range = CMTimeRange.zero
+                    XCTAssertTrue(try XCTUnwrap(instruction.layerInstructions.first)
+                        .getTransformRamp(for: .zero, start: &start, end: &end, timeRange: &range))
+                    let upright = track.uprightTransform.concatenating(CGAffineTransform(scaleX: scale, y: scale))
+                    XCTAssertEqual(start, upright)
+                    continue
+                }
                 XCTAssertTrue(composition.customVideoCompositorClass == PreviewCompositor.self)
                 let instruction = try XCTUnwrap(composition.instructions.first as? PreviewCompositionInstruction)
                 XCTAssertEqual(instruction.transform, PreviewCompositor.transform(track: track, scale: scale))
