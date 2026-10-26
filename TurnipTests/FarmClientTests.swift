@@ -198,6 +198,22 @@ final class FarmClientTests: XCTestCase {
         XCTAssertEqual(clip["end_frame"] as? Int, 20)
     }
 
+    /// The sheet reports success only when the farm gave back every clip with the names it was sent
+    /// with; a clip whose names were dropped, as a farm that ignores label objects drops them, isn't.
+    func testReadBackCountsAClipOnlyWithTheNamesItWasSentWith() throws {
+        let clipID = Self.clipID.uuidString.lowercased()
+        func stored(_ labels: String) throws -> RemoteSource {
+            try JSONDecoder().decode(RemoteSource.self, from: Data("""
+                {"source":{"id":"x","frame_count":30,"sha256":"d"},"clips":[{"id":"\(clipID)",\
+                "start_frame":10,"end_frame":20,"labels":\(labels)}]}
+                """.utf8))
+        }
+        XCTAssertEqual(source().clipsNotHeld(by: try stored("[]")).map(\.clipID), [Self.clipID])
+        XCTAssertEqual(source().clipsNotHeld(by: try stored(#"[{"name":" Gainer ","origin":"typed"}]"#)), [])
+        XCTAssertEqual(
+            source().clipsNotHeld(by: try stored(#"[{"name":"cork","origin":"typed"}]"#)).count, 1)
+    }
+
     func testAPoseTheFarmAlreadyHoldsIsNotUploadedAgain() async throws {
         let farm = ScriptedFarm([registration(blobPresent: true), .init(status: 200, body: #"{"clips":[]}"#), readBack])
         let uploader = ContributionUploader(client: farm.client, credentials: FarmCredentials(store: MemorySecrets()))

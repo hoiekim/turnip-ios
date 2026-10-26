@@ -54,7 +54,8 @@ sequences, never from video.
   blob with a `Content-MD5` header (the presigned URL signs only `host`, so
   the unsigned-safe checksum), re-register until the farm's
   ingest (a 30-second sweep) reports `blob_present`, send the clips, then
-  `GET /api/sources/:id` and report what the farm holds. The canonical
+  `GET /api/sources/:id` and report what the farm holds: the sheet says
+  done only when every clip came back with the names it was sent with. The canonical
   `frame_count` is computed exactly as the farm's ingest computes it; a
   window maps to canonical frames start-floor, end-ceiling, clamped inside
   the sequence.

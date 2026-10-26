@@ -17,6 +17,16 @@ struct SourceContribution: Equatable, Sendable {
     let clips: [ClipContribution]
 }
 
+extension SourceContribution {
+    /// The clips the farm's read-back doesn't hold as sent: missing, or with other names than
+    /// these. Names compare the way the farm dedupes them, ignoring case and spacing.
+    func clipsNotHeld(by stored: RemoteSource) -> [ClipContribution] {
+        func names(_ list: [ClipName]) -> Set<String> { Set(list.map { TrickVocabulary.normalized($0.name) }) }
+        let held = Dictionary(stored.clips.map { ($0.id, names($0.labels)) }, uniquingKeysWith: { first, _ in first })
+        return clips.filter { held[$0.clipID.uuidString.lowercased()] != names($0.names) }
+    }
+}
+
 /// The pose couldn't be compressed for upload; nothing was sent.
 struct PoseEncodingError: LocalizedError {
     var errorDescription: String? { String(localized: "Couldn't prepare the pose for upload.") }

@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Drives the confirmation sheet: nothing is sent until Confirm, and what the sheet reports at
-/// the end is the farm's own read-back of the source.
+/// the end is the farm's own read-back of the source — done only when every clip came back with
+/// the names it was sent with.
 @MainActor
 final class ContributionViewModel: ObservableObject {
     enum Phase: Equatable {
@@ -40,8 +41,12 @@ final class ContributionViewModel: ObservableObject {
                     if case .sending = self.phase { self.phase = .sending(step) }
                 }
             }
-            let sent = Set(source.clips.map { $0.clipID.uuidString.lowercased() })
-            phase = .done(clipCount: stored.clips.filter { sent.contains($0.id) }.count)
+            phase = source.clipsNotHeld(by: stored).isEmpty
+                ? .done(clipCount: source.clips.count)
+                : .failed(String(localized: """
+                    The farm's copy doesn't match what was sent: trick names are missing or different. \
+                    Try again later.
+                    """))
         } catch FarmError.unauthenticated {
             account.sessionEnded()
             phase = .failed(FarmError.unauthenticated.localizedDescription)
