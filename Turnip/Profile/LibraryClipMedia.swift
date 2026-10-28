@@ -48,50 +48,75 @@ enum LibraryClipMedia {
     }
 }
 
-/// A saved clip's still: its first frame from Photos, or a "not in Photos" glyph once the video is
-/// gone. Fills whatever frame its caller gives it.
+/// A saved clip's still: its first frame from Photos, a "not in Photos" glyph once the video is
+/// gone, or a failure glyph when the video is there but its frame didn't come. Fills whatever
+/// frame its caller gives it.
 struct LibraryClipThumbnail: View {
     let clip: LibraryClip
 
+    enum Still: Equatable {
+        case loading
+        case frame(UIImage)
+        case notInPhotos
+        /// The video is in Photos but no frame came back, typically a failed iCloud fetch. The
+        /// tile asks again when it next appears.
+        case unavailable
+    }
+
     @Environment(\.displayScale) private var displayScale
-    @State private var image: UIImage?
-    @State private var isMissing = false
-    /// The asset `image` and `isMissing` describe. A tile reused for another clip starts over
-    /// rather than showing the previous clip's frame; one that only reappears keeps its frame.
+    @State private var still = Still.loading
+    /// The asset `still` describes. A tile reused for another clip starts over rather than
+    /// showing the previous clip's frame; one that only reappears keeps its frame.
     @State private var shownAssetID: String?
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
                 Color(.quaternarySystemFill)
-                if let image {
+                switch still {
+                case .loading:
+                    EmptyView()
+                case .frame(let image):
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
-                } else if isMissing {
-                    Image(systemName: "video.slash")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
+                case .notInPhotos:
+                    glyph("video.slash")
+                case .unavailable:
+                    glyph("exclamationmark.icloud")
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
             .task(id: clip.exportAssetID) {
                 if shownAssetID != clip.exportAssetID {
-                    image = nil
-                    isMissing = false
+                    still = .loading
                     shownAssetID = clip.exportAssetID
                 }
-                guard image == nil else { return }
+                if case .frame = still { return }
                 guard let asset = LibraryClipMedia.asset(for: clip) else {
-                    isMissing = true
+                    still = .notInPhotos
                     return
                 }
                 let side = max(proxy.size.width, proxy.size.height) * displayScale
                 let loaded = await LibraryClipMedia.thumbnail(for: asset, pixelSize: CGSize(width: side, height: side))
-                if shownAssetID == clip.exportAssetID { image = loaded }
+                guard shownAssetID == clip.exportAssetID else { return }
+                still = Self.still(loaded: loaded, isInPhotos: LibraryClipMedia.asset(for: clip) != nil)
             }
         }
+    }
+
+    /// What a finished frame request leaves on the tile. A request that returned nothing because
+    /// the video left Photos meanwhile shows as gone, not as a failed fetch.
+    static func still(loaded: UIImage?, isInPhotos: @autoclosure () -> Bool) -> Still {
+        if let loaded { return .frame(loaded) }
+        return isInPhotos() ? .unavailable : .notInPhotos
+    }
+
+    private func glyph(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.title3)
+            .foregroundStyle(.secondary)
     }
 }
 

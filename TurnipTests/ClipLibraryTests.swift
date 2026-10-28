@@ -1,4 +1,5 @@
 import AVFoundation
+import UIKit
 import XCTest
 @testable import Turnip
 
@@ -387,5 +388,24 @@ final class LibraryClipPlaybackTests: XCTestCase {
     func testTheDownloadIsSpokenAsAPercentage() {
         XCTAssertEqual(ProfileAccessibility.downloadValue(0.424), "42 percent")
         XCTAssertEqual(ProfileAccessibility.downloadValue(1.2), "100 percent")
+    }
+}
+
+final class LibraryClipThumbnailTests: XCTestCase {
+    func testAFrameShowsAndPhotosIsNotAsked() {
+        let frame = UIImage()
+        var askedPhotos = false
+        let still = LibraryClipThumbnail.still(loaded: frame, isInPhotos: { askedPhotos = true; return true }())
+        XCTAssertEqual(still, .frame(frame))
+        XCTAssertFalse(askedPhotos)
+    }
+
+    /// A video still in Photos whose frame didn't come is a failed fetch, not a blank tile.
+    func testNoFrameForAVideoInPhotosIsUnavailable() {
+        XCTAssertEqual(LibraryClipThumbnail.still(loaded: nil, isInPhotos: true), .unavailable)
+    }
+
+    func testNoFrameBecauseTheVideoLeftPhotosShowsItGone() {
+        XCTAssertEqual(LibraryClipThumbnail.still(loaded: nil, isInPhotos: false), .notInPhotos)
     }
 }
