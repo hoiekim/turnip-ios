@@ -306,3 +306,86 @@ final class ClipLibraryTests: XCTestCase {
         XCTAssertEqual(spokenAfter, ["Saved 1 clip to Photos. Earned Gainer, level 1"])
     }
 }
+
+/// A saved clip's video on its way to playing: an iCloud download shows its progress, a failure is
+/// named and can be retried, and a video gone from Photos says so rather than loading forever.
+@MainActor
+final class LibraryClipPlaybackTests: XCTestCase {
+    private let clip = LibraryClip(
+        id: UUID(), sourceAssetID: "source", startTime: 0, endTime: 1, exportAssetID: "export", names: [],
+        isMe: true, isAutoDetected: true, recordedAt: Date(), savedAt: Date())
+    private let video = AVURLAsset(url: URL(fileURLWithPath: "/dev/null"))
+
+    private func playback(_ load: @escaping LoadLibraryClipVideo) -> LibraryClipPlayback {
+        LibraryClipPlayback(mayAutoplayLoops: { false }, loadVideo: load)
+    }
+
+    /// Yields until `condition` holds, a bounded number of times so a regression fails instead of hanging.
+    private func settle(until condition: () -> Bool) async {
+        for _ in 0..<1_000 where !condition() { await Task.yield() }
+    }
+
+    func testADownloadShowsItsProgressThenPlays() async {
+        var release: CheckedContinuation<Void, Never>?
+        let model = playback { [video] _, progress in
+            progress(0.4)
+            await withCheckedContinuation { release = $0 }
+            return video
+        }
+        let loading = Task { await model.load(clip, autoplay: false) }
+        await settle { model.phase == .downloading(0.4) && release != nil }
+        XCTAssertEqual(model.phase, .downloading(0.4))
+        XCTAssertNil(model.player)
+
+        release?.resume()
+        await loading.value
+        XCTAssertEqual(model.phase, .ready)
+        XCTAssertNotNil(model.player)
+    }
+
+    func testAFailedDownloadIsNamedAndATryAgainStartsOver() async {
+        var attempts = 0
+        let model = playback { [video] _, _ in
+            attempts += 1
+            if attempts == 1 { throw VideoResolutionError.iCloudDownloadFailed(underlying: nil) }
+            return video
+        }
+
+        await model.load(clip, autoplay: false)
+        XCTAssertEqual(
+            model.phase, .failed("Couldn't download this video from iCloud. Check your connection and try again."))
+        XCTAssertNil(model.player)
+
+        await model.load(clip, autoplay: false)
+        XCTAssertEqual(model.phase, .ready)
+        XCTAssertNotNil(model.player)
+    }
+
+    /// A progress report that arrives after the load failed doesn't turn the failure back into a download.
+    func testALateProgressReportLeavesAFailureStanding() async {
+        let model = playback { _, progress in
+            progress(0.5)
+            throw VideoResolutionError.iCloudDownloadFailed(underlying: nil)
+        }
+        await model.load(clip, autoplay: false)
+        for _ in 0..<20 { await Task.yield() }
+        guard case .failed = model.phase else { return XCTFail("phase is \(model.phase)") }
+    }
+
+    func testAVideoGoneFromPhotosSaysSo() async {
+        let model = playback { _, _ in throw LibraryClipMediaError.notInPhotos }
+        await model.load(clip, autoplay: false)
+        XCTAssertEqual(model.phase, .notInPhotos)
+    }
+
+    func testACancelledLoadIsNotAFailure() async {
+        let model = playback { _, _ in throw CancellationError() }
+        await model.load(clip, autoplay: false)
+        XCTAssertEqual(model.phase, .loading)
+    }
+
+    func testTheDownloadIsSpokenAsAPercentage() {
+        XCTAssertEqual(ProfileAccessibility.downloadValue(0.424), "42 percent")
+        XCTAssertEqual(ProfileAccessibility.downloadValue(1.2), "100 percent")
+    }
+}

@@ -265,10 +265,13 @@ Built:
   play/pause button ("Play" / "Pause") is a 44 pt target. Needs a name's cards follow the same
   rule. "Delete Clip" asks first, naming both choices ("Remove from Profile", "Remove and
   Delete Video from Photos").
+- While an iCloud-only clip downloads, its player says "Downloading from iCloud…" with the
+  progress as its value ("42 percent"); a failed download says so in words, with "Try Again".
 - Identifiers: `tab-profile`, `profile`, `profile-privacy-note`, `profile-empty`,
   `needs-a-name`, `needs-a-name-screen`, `needs-a-name-primary`, `needs-a-name-back`,
   `achievement-<trick>-<kind>`, `gallery-filter`, `gallery-trick-<trick>`, `trick-clips`,
-  `library-clip-tile`, `clip-view`, `clip-view-date`, `clip-view-delete`, `clip-play-pause`.
+  `library-clip-tile`, `clip-view`, `clip-view-date`, `clip-view-delete`, `clip-play-pause`,
+  `clip-downloading`, `clip-load-failed`, `clip-load-retry`.
 
 Not yet, from the plan:
 

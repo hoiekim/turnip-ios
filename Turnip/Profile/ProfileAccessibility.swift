@@ -36,6 +36,12 @@ enum ProfileAccessibility {
         return String(localized: "\(progress.reps) of \(next) reps")
     }
 
+    /// A clip's iCloud download, as its status's value: "42 percent".
+    static func downloadValue(_ fraction: Double) -> String {
+        let percent = Int((min(max(fraction, 0), 1) * 100).rounded())
+        return String(localized: "\(percent) percent")
+    }
+
     /// Spoken once, as an achievement is earned: "Earned Gainer, level 2". A record is named by
     /// the key it was just earned under, which is the trick's current name.
     static func earnedAnnouncement(_ earned: [EarnedAchievement]) -> String {
