@@ -65,21 +65,24 @@ struct LibraryClipView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
+                // On the button, so where the dialog shows as a popover it points at what was tapped.
+                .confirmationDialog("Delete this clip?", isPresented: $isConfirmingDelete, titleVisibility: .visible) {
+                    Button("Remove from Profile", role: .destructive) { delete(clip, alsoFromPhotos: false) }
+                    if LibraryClipMedia.asset(for: clip) != nil {
+                        Button("Remove and Delete Video from Photos", role: .destructive) {
+                            delete(clip, alsoFromPhotos: true)
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("What this clip earned stays earned.")
+                }
                 .padding(.top, 8)
                 .accessibilityIdentifier("clip-view-delete")
             }
             .padding()
         }
         .scrollDismissesKeyboard(.interactively)
-        .confirmationDialog("Delete this clip?", isPresented: $isConfirmingDelete, titleVisibility: .visible) {
-            Button("Remove from Profile", role: .destructive) { delete(clip, alsoFromPhotos: false) }
-            if LibraryClipMedia.asset(for: clip) != nil {
-                Button("Remove and Delete Video from Photos", role: .destructive) { delete(clip, alsoFromPhotos: true) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("What this clip earned stays earned.")
-        }
     }
 
     /// "Recorded 27 Oct 2026 at 3:41 PM · 1.5s".

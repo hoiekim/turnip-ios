@@ -25,6 +25,8 @@ struct ProfileView: View {
         NavigationStack(path: $path) {
             page
                 .navigationTitle("Profile")
+                // Inline: inside the root pager a large title loses the bar's leading margin.
+                .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: ProfileRoute.self, destination: destination(for:))
         }
         // A newer vocabulary can merge two names' counts without the library changing.

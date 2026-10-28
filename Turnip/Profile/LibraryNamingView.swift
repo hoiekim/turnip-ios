@@ -54,15 +54,7 @@ struct LibraryNamingView: View {
         .navigationTitle(clips.isEmpty ? "" : String(localized: "\(index + 1) of \(clips.count)"))
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                ScrimIconButton(systemImage: "chevron.backward", accessibilityLabel: "Back to Profile") {
-                    commitDraft()
-                    close()
-                }
-                .accessibilityIdentifier("needs-a-name-back")
-            }
-        }
+        .toolbar { toolbar }
         .safeAreaInset(edge: .bottom) {
             if !clips.isEmpty {
                 PrimaryActionBar(primaryTitle) {
@@ -77,6 +69,25 @@ struct LibraryNamingView: View {
             }
         }
         .accessibilityIdentifier("needs-a-name-screen")
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            // The chevron is glass already; the bar's own glass behind it would double it.
+            ToolbarItem(placement: .navigationBarLeading) { backButton }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .navigationBarLeading) { backButton }
+        }
+    }
+
+    private var backButton: some View {
+        ScrimIconButton(systemImage: "chevron.backward", accessibilityLabel: "Back to Profile") {
+            commitDraft()
+            close()
+        }
+        .accessibilityIdentifier("needs-a-name-back")
     }
 
     private var primaryTitle: String {
