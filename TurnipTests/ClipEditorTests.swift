@@ -738,6 +738,27 @@ final class ClipEditorTests: XCTestCase {
         XCTAssertEqual(framingAtPlayhead(viewModel)?.scale ?? 0, zoom, accuracy: 1e-9)
     }
 
+    /// Auto rotate and Reset rotate move the picture the way Auto follow does: each hands the
+    /// preview to a new generation of the pan and eases onto it, keeping the one it eases from.
+    @MainActor
+    func testAutoRotateAndResetRotateEaseThePreview() async throws {
+        let viewModel = makeLevelingViewModel(rotation: 0.25)
+        let opened = try XCTUnwrap(viewModel.followPan)
+        XCTAssertEqual(viewModel.previewPan.weights, PreviewPanWeights([0: 1]))
+
+        try await autoRotateAndWait(viewModel)
+
+        let leveled = try XCTUnwrap(viewModel.followPan)
+        XCTAssertNotEqual(leveled, opened)
+        XCTAssertEqual(viewModel.previewPan.weights, PreviewPanWeights([1: 1]))
+        XCTAssertEqual(viewModel.previewPan.pans, [0: opened, 1: leveled])
+
+        viewModel.resetRotate()
+
+        XCTAssertEqual(viewModel.previewPan.weights, PreviewPanWeights([2: 1]))
+        XCTAssertEqual(viewModel.previewPan.pans[1], leveled)
+    }
+
     /// Reset follow and Reset rotate are independent: returning one to the original leaves the
     /// other's result and its button alone.
     @MainActor

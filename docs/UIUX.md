@@ -3,8 +3,9 @@
 *Rev 24 · 2026-10-28 · The Clip Detail / Editor (§4) describes only what it
 does: every clip's crop follows the athlete. Still's framing, Auto crop and
 Reset crop, which no clip has reached since Rev 23, are removed from the app
-and from §4, and the crop area's VoiceOver value reads the zoom and turn at
-the playhead without the move it never reported for a follow crop.*
+and from §4; the crop area's VoiceOver value reads the zoom and turn at the
+playhead without the move it never reported for a follow crop; and Auto
+rotate and Reset rotate ease the follow crop's turn instead of cutting to it.*
 
 *Rev 23 · 2026-10-28 · Name Clips (§3a) loses its per-clip controls that
 weren't naming: the "Contribute this clip" toggle becomes Settings' one
@@ -84,7 +85,7 @@ and stays sharp only inside the marker, with the controls on top of the
 glass. The expansion flight shows the crop alone; the frosted frame around it
 appears once the flight lands.*
 
-*(Rev 1 established the five-screen flow and made Home a Photos video gallery. Rev 2 resolves the three open questions into decisions. Rev 3 adds the Settings screen this doc previously scoped out. Rev 4 adds the expansion transition, with the *how* in its own companion doc. Rev 5 adds "A gesture and its button play one animation." Rev 6 replaces the Clip Editor's "Reset crop area" with Auto crop and Auto rotate. Rev 7 adds "An automatic change moves, it never cuts." Rev 8 stops trimming from re-cropping. Rev 9 tightens Auto crop's padding and keeps its crop inside the video. Rev 10 applies that to detection's rects. Rev 11 levels by the take's own roll track, with the picture's horizon as the fallback, and makes Auto crop / Auto rotate toggles with a reset. Rev 12 frosts the editor's surround. Rev 13 gives a hand-added clip Reset crop in place of Auto crop. Rev 14 plans the Profile page and naming in the clip flow. Rev 15 adds Follow the athlete to Settings. Rev 16 adds Still and Follow framing modes to the Clip Editor. Rev 17 reconciles the Decisions log and closed issue links. Rev 18 adds the choice between one person and everyone. Rev 19 plans zoom and turn by keyframe in Follow mode. Rev 20 builds Name Clips and opens the contribution sheet after its save. Rev 21 retires Clip List into Name Clips. Rev 22 builds the Profile page and the clip library. Rev 23 moves contributing to Settings, puts every clip in Follow and leaves Name Clips one button. Rev 24 removes Still's framing, Auto crop and Reset crop from the editor.)*
+*(Rev 1 established the five-screen flow and made Home a Photos video gallery. Rev 2 resolves the three open questions into decisions. Rev 3 adds the Settings screen this doc previously scoped out. Rev 4 adds the expansion transition, with the *how* in its own companion doc. Rev 5 adds "A gesture and its button play one animation." Rev 6 replaces the Clip Editor's "Reset crop area" with Auto crop and Auto rotate. Rev 7 adds "An automatic change moves, it never cuts." Rev 8 stops trimming from re-cropping. Rev 9 tightens Auto crop's padding and keeps its crop inside the video. Rev 10 applies that to detection's rects. Rev 11 levels by the take's own roll track, with the picture's horizon as the fallback, and makes Auto crop / Auto rotate toggles with a reset. Rev 12 frosts the editor's surround. Rev 13 gives a hand-added clip Reset crop in place of Auto crop. Rev 14 plans the Profile page and naming in the clip flow. Rev 15 adds Follow the athlete to Settings. Rev 16 adds Still and Follow framing modes to the Clip Editor. Rev 17 reconciles the Decisions log and closed issue links. Rev 18 adds the choice between one person and everyone. Rev 19 plans zoom and turn by keyframe in Follow mode. Rev 20 builds Name Clips and opens the contribution sheet after its save. Rev 21 retires Clip List into Name Clips. Rev 22 builds the Profile page and the clip library. Rev 23 moves contributing to Settings, puts every clip in Follow and leaves Name Clips one button. Rev 24 removes Still's framing, Auto crop and Reset crop from the editor and eases Auto rotate's turn.)*
 
 Companion to [`DESIGN.md`](DESIGN.md), which specifies the auto-edit *pipeline*
 (pose detection → motion signal → peak detection → crop rect → export), and to
@@ -188,7 +189,7 @@ Where it applies today:
 
 | Change | By hand | Automatic | Shared motion |
 |---|---|---|---|
-| Clip Editor leveling (§4) | Two-finger rotate | "Auto rotate" | The video's rotation about the crop center, eased over 0.4 s |
+| Clip Editor leveling (§4) | Two-finger rotate | "Auto rotate", "Reset rotate" | The follow crop's turn at every keyframe, eased over 0.4 s |
 | Clip Editor follow fit (§4) | Drag, pinch or turn the video at a few moments | "Auto follow", "Apply zoom and turn to all keyframes", removing a keyframe, and an untouched Auto follow re-tracking a trimmed window | The video's position, zoom and turn eased over 0.4 s to the curves at the playhead, then the curves play |
 
 This is the companion of the principle above: that one says a button plays
@@ -791,8 +792,10 @@ edits it, and marking it for deletion, the one thing it offered, is gone too.
         it changes fill in. The crop area offers the same action to VoiceOver,
         taking the zoom and turn at the playhead.
       - **Auto rotate and Reset rotate** give every keyframe the clip's
-        leveling turn, or none, replacing turns set by hand. Positions and zoom
-        stay, and Auto follow's keyframes stay hollow.
+        leveling turn, or none, replacing turns set by hand, and move there
+        over the 0.4 s ease as Auto follow does (Rev 24; they cut to it
+        before). Positions and zoom stay, and Auto follow's keyframes stay
+        hollow.
       - **Diamonds.** A diamond fills once its position, zoom or turn has
         changed. Removing a keyframe Auto follow wrote and the user changed puts
         back all three.

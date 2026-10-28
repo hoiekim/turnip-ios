@@ -415,7 +415,7 @@ final class ClipEditorViewModel: ObservableObject {
         guard isAutoRotateApplied else { return }
         isAutoRotateApplied = false
         withAnimation(Self.fitAnimation) {
-            setRotation(0)
+            easePan { setRotation(0) }
         }
     }
 
@@ -550,7 +550,7 @@ final class ClipEditorViewModel: ObservableObject {
             isDetectingHorizon = false
             if let rotation {
                 withAnimation(Self.fitAnimation) {
-                    setRotation(rotation)
+                    easePan { setRotation(rotation) }
                 }
                 isAutoRotateApplied = true
             } else {
