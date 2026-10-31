@@ -55,6 +55,14 @@ struct CameraCaptureView: View {
                 EmptyView()
             }
         }
+        // The scrim sits below the control overlays (they are added after
+        // this one), so Cancel and the top-right controls stay reachable
+        // while the session is interrupted.
+        .overlay {
+            if let reason = viewModel.interruptionReason {
+                interruptionScrim(reason: reason)
+            }
+        }
         .overlay(alignment: .topLeading) { cancelButton }
         .overlay(alignment: .topTrailing) {
             if viewModel.authorization == .authorized {
@@ -98,18 +106,14 @@ struct CameraCaptureView: View {
                 break
             }
         }
-        .overlay {
-            if let reason = viewModel.interruptionReason {
-                interruptionScrim(reason: reason)
-            }
-        }
         .errorAlert("Couldn't record video", message: $viewModel.errorMessage)
     }
 
     /// The frozen preview while the session is interrupted: a dim over the
     /// picture with the reason in words, so the camera never reads as alive
     /// while it records nothing. The top controls stay above it (their
-    /// overlays are added after this one).
+    /// overlays are added after this one), as do the bottom controls (their
+    /// safe-area inset is added after it).
     private func interruptionScrim(reason: AVCaptureSession.InterruptionReason) -> some View {
         Color.black.opacity(0.6)
             .ignoresSafeArea()
