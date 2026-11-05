@@ -44,6 +44,7 @@ struct NameClipsView: View {
         items: [ClipListItem],
         poseFrames: [PoseFrameResult] = [],
         people: [PoseTrack] = [],
+        windowEmbeddings: [WindowEmbeddings] = [],
         asset: AVAsset,
         assetIdentifier: String,
         duration: TimeInterval,
@@ -54,8 +55,8 @@ struct NameClipsView: View {
         popToRoot: @escaping () -> Void = {}
     ) {
         _viewModel = StateObject(wrappedValue: ClipListViewModel(
-            items: items, poseFrames: poseFrames, people: people, asset: asset, assetIdentifier: assetIdentifier,
-            duration: duration, loader: loader))
+            items: items, poseFrames: poseFrames, people: people, windowEmbeddings: windowEmbeddings, asset: asset,
+            assetIdentifier: assetIdentifier, duration: duration, loader: loader))
         _vocabulary = ObservedObject(wrappedValue: vocabulary)
         _account = ObservedObject(wrappedValue: account)
         self.showsNoTricksFound = showsNoTricksFound
