@@ -110,7 +110,8 @@ Rules (the farm and ML docs rely on 2, 3 and 6):
 
 - **Source** — one per video that produced at least one saved clip:
   - `source_asset_id`: the original's `PHAsset.localIdentifier` (never
-    leaves the device);
+    leaves the device), and `source_cloud_id`, its `PHCloudIdentifier`
+    once Photos has one (§3.2);
   - `recorded_at` (`PHAsset.creationDate`), duration, analysis rate;
   - the pose sequence (§2.2);
   - `location`, copied from `PHAsset.location` when the asset has one,
@@ -124,7 +125,8 @@ Rules (the farm and ML docs rely on 2, 3 and 6):
   - the window, in source seconds and in canonical 10 Hz frames;
   - the crop and rotation export used;
   - `export_asset_id`: the saved clip's `localIdentifier`, as
-    `ClipPhotosSaver.saveVideo` returns it;
+    `ClipPhotosSaver.saveVideo` returns it, and `export_cloud_id`, its
+    `PHCloudIdentifier` once Photos has one (§3.2);
   - `names`: an ordered list of `{name, origin}`, `origin` one of
     `typed | vocabulary | model` (`BACKEND_DESIGN.md` §1.2.18);
   - `is_me` (§4.3);
@@ -203,9 +205,11 @@ Rules (the farm and ML docs rely on 2, 3 and 6):
 | `clip_id` | UUIDv4 | by the app, at clip creation | only when the clip is contributed |
 | `export_asset_id` | the saved clip's `localIdentifier` | by Photos, at save | never |
 | `source_asset_id` | the original's `localIdentifier` | by Photos | never |
+| `export_cloud_id`, `source_cloud_id` | the same assets' `PHCloudIdentifier` | by iCloud Photos, read after save | never |
 | `source_id` | SHA-256 per `CONTRIBUTION_DESIGN.md` §1 | by the app, on first contribution | when contributed |
 
-The Profile needs only the first two; `source_id` is contribution's.
+The Profile needs `clip_id`, `export_asset_id` and the cloud IDs that
+relink it (§3.2); `source_id` is contribution's.
 Whether `source_id` (the farm's `video_id`) should derive from an
 identifier shared across a user's devices has to be settled before the
 first contribution ships (master plan §9 Q2).
@@ -218,9 +222,62 @@ clips are there at all. Recovery comes from the device, in two layers:
 
 1. **Device backup.** The library is in `Application Support/`, so an
    iCloud or Finder backup and restore brings it back whole, IDs
-   included. Whether `localIdentifier`s still resolve after a restore
-   to a *new* device is unverified; when one does not, layer 2's match
-   relinks the clip.
+   included. A `localIdentifier` is minted per device, though: restored
+   onto a *new* iPhone, the library's identifiers name nothing there,
+   even with iCloud Photos bringing every video along (seen on a real
+   transfer: every saved clip lost its video). So each record also keeps
+   its asset's `PHCloudIdentifier`, the same on every device signed in to
+   the user's iCloud Photos library, and the `DeviceMark` of the device
+   that saved it: a random value in the Keychain that never migrates to
+   another device. `ClipLibrary.relinkAssets` runs when the Profile
+   appears or the app becomes active, at most once every five minutes
+   (`LibraryAssetRelink`):
+   - A record whose `localIdentifier` resolves and has no cloud ID yet
+     gets one. A clip just saved has none until iCloud Photos uploads
+     it, so a later pass asks again; a re-saved clip's new video drops
+     the old video's cloud ID.
+   - A record whose `localIdentifier` resolves to nothing takes the one
+     `PHPhotoLibrary.localIdentifierMappings` gives its cloud ID, under
+     full or limited access. A video iCloud Photos hasn't brought down
+     yet is found on a later pass. A source that moves carries its clips
+     and trashed proposals with it, and joins a record the same video got
+     from a save on the new device.
+   - A record with no cloud ID — saved before the library kept them, or
+     with iCloud Photos off — is matched by date and duration only when
+     it was saved on another device, and only with full access. A record
+     saved here whose video resolves to nothing was deleted in Photos,
+     and keeps its "video deleted" state (§2.3). For records saved before
+     the library stamped them, each device decides once whether they were
+     saved there. One of them relinked by its cloud ID settles it as
+     elsewhere, under any access. Otherwise, on the first pass with full
+     access, they were saved there if any of their `localIdentifier`s
+     resolves, since no other device mints the same. Either way the
+     decision comes before a relink makes their identifiers the device's
+     own.
+     *(Judgment call: a device that saved them and has since lost every
+     one of their videos decides wrongly, and matches them.)*
+   - The match: a source fits a video by the creation date (±1 s) and
+     duration (±0.5 s) the library read from it, an exported clip by its
+     window's duration (±0.1 s) and a creation date from an hour before
+     its save to five minutes after. A video another record holds fits
+     nothing. A record is relinked only to a video that is its one fit
+     and fits no other unlinked record, so a record whose own video
+     hasn't arrived yet keeps another from taking a video meant for it.
+     *(Judgment call: a clip shown with another clip's video is worse
+     than one shown as missing. Clips of one save within about 0.2 s of
+     each other in length can fit each other's videos and stay
+     unlinked.)*
+   - A clip saved again keeps its first save's date. Its newer video can
+     fall outside the window, and the pre-edit video, which Photos keeps,
+     can then be its one fit: such a clip is relinked to its earlier cut.
+   - **Unverified; probe on a device:** how far an exported clip's
+     duration in Photos sits from its window's, against the 0.1 s
+     tolerance; and that its Photos creation date is its save's (the
+     exporter writes no date of its own) and survives iCloud Photos.
+   - With iCloud Photos off, an iCloud or Finder backup carries the
+     photo library itself, so the videos do arrive, under new
+     `localIdentifier`s and without cloud IDs: the match by date and
+     duration is what relinks them.
 2. **A Turnip record in each exported clip file.** At export the clip's
    movie gets one movie-level QuickTime metadata item,
    `mdta/com.hoiekim.turnip.clip` — the key space the camera's roll
@@ -357,9 +414,14 @@ counts once under each distinct canonical trick.
 
 ### 5.1 Layout
 
-- The root pager's third page, after Home: Camera | Home | Profile
-  (UIUX "Root navigation"). Reached by swiping left from Home or by the
-  floating bar's third icon, which plays the same slide.
+- The root pager's first page, before Home: Profile | Home (UIUX "Root
+  navigation"), and the page the app opens on once the library holds a
+  saved clip. Reached by swiping right from Home or by the tab bar's first
+  icon, which plays the same slide.
+- Headed by the same "Turnip" wordmark Home leads with, as scroll content
+  under the same transparent bar, so the two pages' headers line up across
+  the swipe. The bar's title, "Profile", is never drawn, but still names the
+  page on a pushed screen's back button.
 - One scrolling page, top to bottom:
   - **Needs a name** — a row with the count of unnamed saved clips,
     shown only when it is above zero; opens them in Name Clips

@@ -30,13 +30,16 @@ in the store.
   decision #7.
 - No calls to any Turnip-controlled server in the v1 path. A `URLSession` client
   for OTA model updates does exist — `Turnip/ModelUpdates/ModelUpdateClient.swift`,
-  the only networking code in `Turnip/` — and it is inert: it refuses any scheme
+  the only networking code in `Turnip/` — and it refuses any scheme
   but `https`, it takes its endpoint as a parameter rather than holding one, and
   `ModelUpdateService.checkForUpdates` returns on a `nil` base URL before it
   reaches the client. The app runs that check on launch and on every
-  foreground, but the URL comes from the `TURNIP_MODEL_UPDATE_ENDPOINT`
-  Info.plist key, which is empty in the committed plist — so the base URL is
-  `nil` and no request is ever made. The client's own test exercises the
+  foreground, and the URL comes from the `TURNIP_MODEL_UPDATE_ENDPOINT`
+  Info.plist key, which now names the farm (`https://turnip.hoie.kim`) — so the
+  app polls the public `GET /api/models/current` manifest on launch and on
+  every foreground. That request carries no identifier, no account, and no
+  sign-in, and before the farm promotes its first model it answers 404
+  NO_MODEL and nothing further happens. The client's own test exercises the
   `https` guard without issuing a request.
   Bytes do cross the network when PhotoKit downloads an iCloud-only video
   (`isNetworkAccessAllowed` in `PhotoVideoResolver`/`ThumbnailLoader`) — from
@@ -114,16 +117,15 @@ require a manifest/signature. If a dependency is added, check both.
   language. `NSPhotoLibraryAddUsageDescription` ships alongside it
   because both save paths into `ClipPhotosSaver` call
   `requestAuthorization(for: .addOnly)`, and iOS terminates the app on
-  that call when the string is absent. On the clip-save path —
-  reachable from Home through Processing and Name Clips — the user
-  does not normally see the string: reaching a save means the
-  read/write grant from Home is already in place, which determines
-  add-only as authorized, so the call returns without presenting a
-  second prompt. On the camera path, the string is user-facing: the
-  camera is a tab sibling of Home, not a page behind it, so a
-  camera-first user reaches `RootTabView.handleRecorded` having
-  granted nothing from Home, and the add-only prompt is the first and
-  only Photos prompt they see.
+  that call when the string is absent. On neither path does the user
+  normally see the string: the clip-save path is reached from Home
+  through Processing and Name Clips, and the camera opens from a tile in
+  Home's grid (UIUX §1b), which only exists once Home has its Photos
+  access. Reaching either save means the read/write grant from Home is
+  already in place, which determines add-only as authorized, so the call
+  returns without presenting a second prompt. (Until UIUX Rev 29 the
+  camera was a page beside Home, reachable with nothing granted, and
+  this string was the first Photos prompt a camera-first user saw.)
 - `PHPhotoLibraryPreventAutomaticLimitedAccessAlert` is set: with
   limited access the app shows its own "select more" affordance instead
   of iOS re-prompting on its own schedule.
@@ -230,7 +232,8 @@ What a build with `TURNIP_FARM_ENDPOINT` set sends to the farm
 On the device: the session token, the Apple user ID it belongs to (for the
 credential-state check), the Apple user ID that agreed to contribute and one
 random key per contributed source live in the Keychain, readable after first
-unlock and never migrated off the device.
+unlock and never migrated off the device. So does the clip library's device
+mark (below), a random value that names no account and is never sent.
 The fetched vocabulary is cached in `Application Support/turnip-vocabulary.json`.
 A contribution waiting to send is kept in `Application Support/ContributionOutbox/`,
 with its pose keypoints, until the farm holds it. The folder is excluded from
@@ -262,8 +265,10 @@ Built (`Turnip/Profile/`):
 - **The first persistent user data.** `ClipLibrary` keeps one JSON file,
   `Application Support/ClipLibrary/library.json`, written by Name Clips' save
   and by naming on the Profile: for each video that produced a saved clip,
-  its Photos identifier, recording date and duration; for each saved clip,
-  its clip ID, window in seconds, its own Photos identifier, trick names,
+  its Photos identifiers (this device's and iCloud Photos', which finds the
+  video again after a restore onto a new device), recording date and
+  duration; for each saved clip, its clip ID, window in seconds, its own
+  Photos identifiers, trick names,
   whether it shows the user, whether detection found it, how the trick model
   proposed it, which stored pose it was cut from, and its date; the levels
   and rep milestones earned; and, for the personal layer, the trick-model
@@ -284,7 +289,16 @@ Built (`Turnip/Profile/`):
   it leaves the library, and deleting the app deletes them all. Only the
   personal layer's rebuild reads them (below).
 - **New read, no new prompt.** `PHAsset.creationDate` of the video a save
-  came from, under the existing Photos grant, to date its clips. The Profile
+  came from, under the existing Photos grant, to date its clips. The
+  Profile reads each saved video's iCloud Photos identifier
+  (`PHPhotoLibrary.cloudIdentifierMappings`) and maps it back to this
+  device's (`localIdentifierMappings`); with full access, a record with no
+  iCloud identifier that was saved on another device is matched by creation
+  date and duration among the library's videos. To tell which device saved
+  a record, each record keeps a random device mark, minted once and kept in
+  the Keychain as never leaving the device
+  (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`). All of it stays on
+  the device. The Profile
   also shows each saved clip's thumbnail and plays it from Photos by its
   identifier, and the Clip view can delete a clip's video through
   `PHAssetChangeRequest.deleteAssets`, behind the system's own confirmation

@@ -9,29 +9,41 @@ enum ProfileRoute: Hashable {
     case clip(UUID)
 }
 
-/// The Profile tab (`docs/PROFILE_DESIGN.md` §5): the root pager's third page, computed on the
-/// device from the clip library and never sent anywhere. One scrolling page: "Needs a name" while
-/// any saved clip has no name, the achievements each trick has earned, and the gallery grouped by
-/// trick. Its pushed screens own the full screen, so `RootTabView` hides the floating bar and stops
-/// the pager while `path` holds one.
+/// The Profile tab (`docs/PROFILE_DESIGN.md` §5): the root pager's first page, and the one the app
+/// opens on once a clip is saved (`MainTab.landing`), computed on the device from the clip library
+/// and never sent anywhere. One scrolling page under the same "Turnip" wordmark header Home leads
+/// with: "Needs a name" while any saved clip has no name, the achievements each trick has earned,
+/// and the gallery grouped by trick. Its pushed screens own the full screen, so `RootTabView` hides
+/// the floating bar and stops the pager while `path` holds one.
 struct ProfileView: View {
     @ObservedObject var library: ClipLibrary
     @ObservedObject var vocabulary: VocabularyStore
     @Binding var path: [ProfileRoute]
 
     @State private var filter: TrickGallery.Filter = .mine
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack(path: $path) {
             page
+                // Never drawn — the wordmark header stands in for it, as on Home — but still the
+                // page's name on the back button of a screen pushed from here.
                 .navigationTitle("Profile")
                 // Inline: inside the root pager a large title loses the bar's leading margin.
                 .navigationBarTitleDisplayMode(.inline)
+                .modifier(WordmarkNavigationBar())
                 .navigationDestination(for: ProfileRoute.self, destination: destination(for:))
         }
         // A newer vocabulary can merge two names' counts without the library changing.
         .onAppear { library.refreshEarned() }
         .onChange(of: vocabulary.current) { _ in library.refreshEarned() }
+        // Points saved clips at their videos on this device: after a restore onto a new iPhone the
+        // videos arrive from iCloud Photos over time, so it runs again whenever the app comes back.
+        .task { await library.relinkAssetsIfDue() }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            Task { await library.relinkAssetsIfDue() }
+        }
     }
 
     private var progress: [TrickProgress] {
@@ -46,6 +58,8 @@ struct ProfileView: View {
 
     private var page: some View {
         ScrollView {
+            // Scroll content, not chrome, as on Home: it leads the page and scrolls away with it.
+            HomeHeader()
             VStack(alignment: .leading, spacing: 28) {
                 privacyNote
                 if library.clips.isEmpty && library.earned.isEmpty {
@@ -59,7 +73,7 @@ struct ProfileView: View {
             .padding(.horizontal)
             .padding(.top, 8)
             // The floating tab bar overlays this page rather than reserving space for itself.
-            .padding(.bottom, FloatingTabBarMetrics.clearance)
+            .floatingTabBarClearance()
         }
         .accessibilityIdentifier("profile")
     }

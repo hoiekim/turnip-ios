@@ -4,8 +4,16 @@ import Photos
 
 /// One video that produced at least one saved clip (`docs/PROFILE_DESIGN.md` §2.1).
 struct LibrarySource: Codable, Hashable, Sendable {
-    /// The original's `PHAsset.localIdentifier`. Never leaves the device.
-    let assetID: String
+    /// The original's `PHAsset.localIdentifier` on this device. Never leaves the device. A library
+    /// restored onto another device holds the old device's, which `cloudID` relinks.
+    var assetID: String
+    /// The original's `PHCloudIdentifier`, which names it on every device sharing the user's iCloud
+    /// Photos library. `nil` until Photos has one for it, and for records written before the
+    /// library kept it. Never leaves the device.
+    var cloudID: String?
+    /// The `DeviceMark` of the device that first saved a clip of it; `nil` for records written
+    /// before the library stamped them, and where the Keychain couldn't be read.
+    var savedOn: String?
     /// When the original was recorded (`PHAsset.creationDate`); `nil` when Photos had no date.
     var recordedAt: Date?
     var duration: TimeInterval
@@ -16,12 +24,17 @@ struct LibraryClip: Codable, Hashable, Identifiable, Sendable {
     /// The clip's `clip_id`, minted when the clip was created on Name Clips: the ID a contribution
     /// sends.
     let id: UUID
-    let sourceAssetID: String
+    var sourceAssetID: String
     /// The window, in source seconds.
     var startTime: TimeInterval
     var endTime: TimeInterval
-    /// The saved clip's `PHAsset.localIdentifier`. Never leaves the device.
+    /// The saved clip's `PHAsset.localIdentifier` on this device. Never leaves the device. A library
+    /// restored onto another device holds the old device's, which `exportCloudID` relinks.
     var exportAssetID: String
+    /// The saved clip's `PHCloudIdentifier`, as `LibrarySource.cloudID`. Never leaves the device.
+    var exportCloudID: String?
+    /// The `DeviceMark` of the device that saved `exportAssetID`, as `LibrarySource.savedOn`.
+    var savedOn: String?
     var names: [ClipName]
     var isMe: Bool
     var isAutoDetected: Bool
@@ -46,7 +59,7 @@ struct LibraryClip: Codable, Hashable, Identifiable, Sendable {
 /// and the canonical 10 Hz frames it was proposed over, end exclusive. Nothing else: not a clip,
 /// an export or a name. The personal keep layer reads it as a segment the user didn't keep.
 struct DismissedWindow: Codable, Hashable, Sendable {
-    let sourceAssetID: String
+    var sourceAssetID: String
     let poseID: String
     let startFrame: Int
     let endFrame: Int
@@ -84,6 +97,10 @@ struct LibrarySave: Sendable {
 /// computed from it on the device. All that ever leaves is what a contribution sends: a saved
 /// clip's id and names, read here so a waiting upload sends the clip as it stands.
 ///
+/// Records point at their videos by `PHAsset.localIdentifier`, which is minted per device, and keep
+/// each video's iCloud identifier beside it, so a library restored onto a new device finds its
+/// videos again (`relinkAssets`).
+///
 /// Kept as one JSON file in `Application Support/`, which is in the user's device backups and is
 /// never evicted, rewritten whole and atomically on every change. The file carries a schema
 /// version: a file this build can't read — corrupt, or written by a newer build — is moved aside
@@ -92,7 +109,9 @@ struct LibrarySave: Sendable {
 /// again.
 @MainActor
 final class ClipLibrary: ObservableObject {
-    static let shared = ClipLibrary(fileURL: ClipLibrary.defaultFileURL, vocabulary: { VocabularyStore.shared.current })
+    static let shared = ClipLibrary(
+        fileURL: ClipLibrary.defaultFileURL, vocabulary: { VocabularyStore.shared.current },
+        deviceMark: { DeviceMark.current() })
 
     static let schemaVersion = 1
 
@@ -102,6 +121,16 @@ final class ClipLibrary: ObservableObject {
     /// Trashed proposals on the poses the library keeps, for the personal layer. Each goes with
     /// its pose, and all of them when Learn from my clips is turned off.
     @Published private(set) var dismissedWindows: [DismissedWindow] = []
+    /// Whether a relink pass is under way, so the Profile appearing again doesn't start another.
+    private var isRelinking = false
+    /// When the Profile last started a relink pass (`relinkAssetsIfDue`).
+    private var lastRelinkStart: Date?
+    /// The least time between two relink passes the Profile starts: each one asks Photos about
+    /// every record still without a video or an iCloud identifier.
+    static let relinkInterval: TimeInterval = 5 * 60
+    /// Which device decided whether the records saved before the library stamped them were saved
+    /// there, and what it decided (`LibraryDevice.legacySavedHere`).
+    private var legacyOrigin: LegacyOrigin?
 
     private let fileURL: URL?
     let poseStore: SourcePoseStore
@@ -111,6 +140,8 @@ final class ClipLibrary: ObservableObject {
     /// Speaks an achievement earned by a name given on the Profile's own screens. One earned by a
     /// Name Clips save is spoken by that save's own announcement instead.
     private let announce: AccessibilityAnnouncing
+    /// This device's `DeviceMark`, read when it's needed.
+    private let deviceMark: () -> String?
     private static let logger = Logger(subsystem: "com.hoiekim.turnip", category: "ClipLibrary")
 
     private struct Snapshot: Codable {
@@ -120,6 +151,12 @@ final class ClipLibrary: ObservableObject {
         var earned: [EarnedAchievement]
         /// Optional so a file written before the library kept them still reads.
         var dismissedWindows: [DismissedWindow]?
+        var legacyOrigin: LegacyOrigin?
+    }
+
+    private struct LegacyOrigin: Codable, Equatable {
+        let deviceMark: String
+        let savedHere: Bool
     }
 
     private struct SchemaHeader: Decodable {
@@ -131,7 +168,8 @@ final class ClipLibrary: ObservableObject {
         vocabulary: @escaping @MainActor () -> TrickVocabulary,
         calendar: Calendar = .autoupdatingCurrent,
         now: @escaping () -> Date = Date.init,
-        announce: @escaping AccessibilityAnnouncing = postAccessibilityAnnouncement
+        announce: @escaping AccessibilityAnnouncing = postAccessibilityAnnouncement,
+        deviceMark: @escaping () -> String? = { nil }
     ) {
         self.fileURL = fileURL
         self.poseStore = SourcePoseStore(besideLibraryFile: fileURL)
@@ -139,6 +177,7 @@ final class ClipLibrary: ObservableObject {
         self.calendar = calendar
         self.now = now
         self.announce = announce
+        self.deviceMark = deviceMark
         load()
     }
 
@@ -187,6 +226,7 @@ final class ClipLibrary: ObservableObject {
     func record(_ save: LibrarySave, sourceRecordedAt: Date?) -> [EarnedAchievement] {
         guard !save.clips.isEmpty else { return [] }
         let savedAt = now()
+        let mark = deviceMark()
         let source: LibrarySource
         if let index = sources.firstIndex(where: { $0.assetID == save.sourceAssetID }) {
             sources[index].recordedAt = sources[index].recordedAt ?? sourceRecordedAt
@@ -194,7 +234,8 @@ final class ClipLibrary: ObservableObject {
             source = sources[index]
         } else {
             source = LibrarySource(
-                assetID: save.sourceAssetID, recordedAt: sourceRecordedAt, duration: save.sourceDuration)
+                assetID: save.sourceAssetID, savedOn: mark, recordedAt: sourceRecordedAt,
+                duration: save.sourceDuration)
             sources.append(source)
         }
         for saved in save.clips {
@@ -205,6 +246,8 @@ final class ClipLibrary: ObservableObject {
                 startTime: saved.window.startTime,
                 endTime: saved.window.endTime,
                 exportAssetID: saved.exportAssetID,
+                exportCloudID: existing?.exportAssetID == saved.exportAssetID ? existing?.exportCloudID : nil,
+                savedOn: existing?.exportAssetID == saved.exportAssetID ? existing?.savedOn : mark,
                 names: saved.names,
                 isMe: saved.isMe,
                 isAutoDetected: saved.isAutoDetected,
@@ -276,6 +319,100 @@ final class ClipLibrary: ObservableObject {
         }
     }
 
+    /// `relinkAssets` against Photos, as the Profile runs it whenever it appears and whenever the
+    /// app becomes active: at most once per `relinkInterval`, since it asks Photos about every
+    /// record still without a video or an iCloud identifier.
+    func relinkAssetsIfDue(using lookup: LibraryAssetLookup = .photos) async {
+        if let lastRelinkStart, now().timeIntervalSince(lastRelinkStart) < Self.relinkInterval { return }
+        lastRelinkStart = now()
+        await relinkAssets(using: lookup)
+    }
+
+    /// Points every record at its video on this device, and keeps each video's iCloud identifier
+    /// (`LibraryAssetRelink`): a library restored onto a new device finds its videos as iCloud
+    /// Photos brings them down, and one still on the device that saved it gathers the iCloud
+    /// identifiers a later restore needs. The lookups run off the main actor; a record changed
+    /// meanwhile keeps its change.
+    func relinkAssets(using lookup: LibraryAssetLookup = .photos) async {
+        guard !isRelinking, !clips.isEmpty || !sources.isEmpty else { return }
+        isRelinking = true
+        defer { isRelinking = false }
+        let clips = self.clips
+        let sources = self.sources
+        let device = deviceMark().map { mark in
+            LibraryDevice(mark: mark, legacySavedHere: legacyOrigin?.deviceMark == mark ? legacyOrigin?.savedHere : nil)
+        }
+        let relink = await Task.detached(priority: .utility) {
+            LibraryAssetRelink.make(clips: clips, sources: sources, device: device, lookup: lookup)
+        }.value
+        guard !relink.isEmpty else { return }
+        var changed = false
+        if let device, let savedHere = relink.legacySavedHere, legacyOrigin?.deviceMark != device.mark {
+            legacyOrigin = LegacyOrigin(deviceMark: device.mark, savedHere: savedHere)
+            changed = true
+        }
+        changed = apply(relink) || changed
+        if changed { persist() }
+    }
+
+    /// Applies a pass where each record still holds what the pass read; returns whether anything
+    /// changed.
+    private func apply(_ relink: LibraryAssetRelink) -> Bool {
+        var changed = false
+        for (id, change) in relink.exports {
+            guard let index = clips.firstIndex(where: { $0.id == id }), clips[index].exportAssetID == change.before
+            else { continue }
+            clips[index].exportAssetID = change.after
+            changed = true
+        }
+        changed = applyCloudIDs(relink) || changed
+        for (heldID, localID) in relink.sources {
+            changed = moveSource(heldID, to: localID) || changed
+        }
+        return changed
+    }
+
+    private func applyCloudIDs(_ relink: LibraryAssetRelink) -> Bool {
+        var changed = false
+        for (id, change) in relink.exportCloudIDs {
+            guard let index = clips.firstIndex(where: { $0.id == id }), clips[index].exportAssetID == change.before,
+                clips[index].exportCloudID == nil else { continue }
+            clips[index].exportCloudID = change.after
+            changed = true
+        }
+        for (heldID, cloudID) in relink.sourceCloudIDs {
+            guard let index = sources.firstIndex(where: { $0.assetID == heldID }), sources[index].cloudID == nil
+            else { continue }
+            sources[index].cloudID = cloudID
+            changed = true
+        }
+        return changed
+    }
+
+    /// Moves a source, its clips and the proposals trashed on it to the identifier its video has on
+    /// this device. A save of the same video made here meanwhile already has a record under that
+    /// identifier: the two become one.
+    private func moveSource(_ heldID: String, to localID: String) -> Bool {
+        guard let index = sources.firstIndex(where: { $0.assetID == heldID }) else { return false }
+        if let existing = sources.firstIndex(where: { $0.assetID == localID }) {
+            sources[existing].recordedAt = sources[existing].recordedAt ?? sources[index].recordedAt
+            sources[existing].cloudID = sources[existing].cloudID ?? sources[index].cloudID
+            sources[existing].savedOn = sources[existing].savedOn ?? sources[index].savedOn
+            sources.remove(at: index)
+        } else {
+            sources[index].assetID = localID
+        }
+        for index in clips.indices where clips[index].sourceAssetID == heldID {
+            clips[index].sourceAssetID = localID
+        }
+        for index in dismissedWindows.indices where dismissedWindows[index].sourceAssetID == heldID {
+            dismissedWindows[index].sourceAssetID = localID
+        }
+        var seen = Set<DismissedWindow>()
+        dismissedWindows = dismissedWindows.filter { seen.insert($0).inserted }
+        return true
+    }
+
     /// Forgets every trashed proposal: Learn from my clips turned off
     /// (`docs/PERSONALIZATION_DESIGN.md` §8).
     func removeDismissedWindows() {
@@ -337,6 +474,7 @@ final class ClipLibrary: ObservableObject {
             clips = snapshot.clips
             earned = snapshot.earned
             dismissedWindows = snapshot.dismissedWindows ?? []
+            legacyOrigin = snapshot.legacyOrigin
         } catch {
             Self.logger.error("Library unreadable: \(error.localizedDescription, privacy: .public)")
             setAside(fileURL)
@@ -360,7 +498,7 @@ final class ClipLibrary: ObservableObject {
         guard let fileURL else { return }
         let snapshot = Snapshot(
             schemaVersion: Self.schemaVersion, sources: sources, clips: clips, earned: earned,
-            dismissedWindows: dismissedWindows)
+            dismissedWindows: dismissedWindows, legacyOrigin: legacyOrigin)
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
