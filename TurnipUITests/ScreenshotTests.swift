@@ -406,6 +406,23 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertTrue(progress.waitForExistence(timeout: 15), "the analysis never showed its progress")
         XCTAssertTrue(app.buttons["processing-cancel"].exists)
         XCTAssertFalse(app.buttons["processing-clip-it"].exists, "Clip it stayed up during the run")
+        XCTAssertFalse(
+            app.staticTexts[HarnessIdentifier.poppedToRoot].exists, "leaving the list for the run also left for Home")
+    }
+
+    /// A camera take that lands on Name Clips with nothing found has no Processing screen under
+    /// it to analyze on, so its empty state offers "Clip manually" alone.
+    func testCameraTakeEmptyStateOffersClipManuallyAlone() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-screenshotNameClipsCameraEmpty"]
+        app.launch()
+        let notice = app.staticTexts["no-tricks-notice"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 15))
+        XCTAssertEqual(notice.label, "No tricks found")
+        let clipManually = app.buttons["name-clips-clip-manually"]
+        XCTAssertTrue(clipManually.waitForExistence(timeout: 5))
+        XCTAssertEqual(clipManually.label, "Clip manually")
+        XCTAssertFalse(app.buttons["Analyze clips"].exists, "a camera take offered an analysis it has no screen for")
     }
 
     /// A swipe on Processing browses to the neighboring video — the whole page follows the
@@ -445,6 +462,16 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertTrue(waitForCenterColor(.red), "right swipe at the end of the grid left the video")
         XCTAssertTrue(waitUntilHittable(app.buttons["processing-clip-it"]), "the screen's controls did not settle")
         addScreenshot(named: "processing-browse")
+
+        // Left, starting on "Clip it": a drag from a corner control swipes like any other, and
+        // the control's tap stands down, so the screen stays up rather than pushing the clip list.
+        let clipIt = app.buttons["processing-clip-it"]
+        clipIt.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(
+            forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.1)),
+            withVelocity: XCUIGestureVelocity(900), thenHoldForDuration: 0.05)
+        XCTAssertTrue(waitForCenterColor(.green), "a swipe starting on Clip it did not browse to the next video")
+        XCTAssertTrue(
+            waitUntilHittable(clipIt), "Clip it fired under the swipe, or the landed screen's controls never arrived")
     }
 
     /// Settings sheet at its defaults: the analysis-mode segmented control, the

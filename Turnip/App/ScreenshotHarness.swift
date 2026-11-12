@@ -576,8 +576,11 @@ struct ScreenshotProcessingPoseRunner: ProcessingRunning {
 /// clips" asks; the scripted runner then reports one frame of progress and holds, like
 /// `-screenshotProcessing`'s. The destination is the real Name Clips, wired the way Home wires
 /// it, so the UI test that taps "Clip it" reads the empty state it lands on and drives its
-/// "Analyze clips" back to this screen.
+/// "Analyze clips" back to this screen. `popToRoot` puts up a marker instead of closing a cover,
+/// so that test can tell "Analyze clips" stayed on Processing rather than leaving for Home.
 struct ScreenshotProcessingIdleHarness: View {
+    @State private var hasPoppedToRoot = false
+
     var body: some View {
         NavigationStack {
             ProcessingView(
@@ -587,6 +590,7 @@ struct ScreenshotProcessingIdleHarness: View {
                     duration: 60),
                 runner: ScreenshotProcessingRunner(),
                 autostart: false,
+                popToRoot: { hasPoppedToRoot = true },
                 destination: { result, actions in
                     NameClipsView(
                         items: [],
@@ -597,6 +601,30 @@ struct ScreenshotProcessingIdleHarness: View {
                         popToRoot: actions.popToRoot,
                         analyze: actions.analyze)
                 })
+        }
+        .overlay(alignment: .center) {
+            if hasPoppedToRoot {
+                Text("Popped to Home")
+                    .padding()
+                    .background(.red)
+                    .accessibilityIdentifier(HarnessIdentifier.poppedToRoot)
+            }
+        }
+    }
+}
+
+/// Name Clips as a camera take that live inference fully covered lands on it with nothing found
+/// (`-screenshotNameClipsCameraEmpty`): the root of the cover, with no Processing screen under
+/// it, so no `analyze` — the empty state offers "Clip manually" alone.
+struct ScreenshotNameClipsCameraEmptyHarness: View {
+    var body: some View {
+        NavigationStack {
+            NameClipsView(
+                items: [],
+                asset: AVURLAsset(url: URL(fileURLWithPath: "/dev/null")),
+                assetIdentifier: "screenshot",
+                duration: 60,
+                showsNoTricksFound: true)
         }
     }
 }

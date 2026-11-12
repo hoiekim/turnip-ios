@@ -90,7 +90,9 @@ struct NameClipsView: View {
             }
         }
         // The card's size is worked out from this measurement, which ignores the keyboard: the
-        // keyboard scrolls the page instead of resizing the card.
+        // keyboard scrolls the page instead of resizing the card. Measured afresh when the screen
+        // goes between empty and clips, since the empty state's bar is a different height from
+        // the paging bar the card sits over.
         .background {
             GeometryReader { proxy in
                 Color.clear
@@ -100,6 +102,7 @@ struct NameClipsView: View {
                     }
             }
             .ignoresSafeArea(.keyboard)
+            .id(clips.isEmpty)
         }
         .disabled(viewModel.isSaving)
         .navigationTitle(title)

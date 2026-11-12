@@ -556,7 +556,8 @@ default empty state, so it never reads as "your library is empty."
   back, a quick flick commits even when short, and at either end of the grid
   the page gives only a little, since there is no video that way. Where the
   drag starts makes no difference — the leading edge, the top band, the
-  bottom strip, the video itself — with one carve-out: the scrub bar's own
+  bottom strip, the video itself, the back chevron and "Clip it" (whose tap
+  then doesn't fire) — with one carve-out: the scrub bar's own
   track (`VideoScrubBar`), which claims a horizontal drag for
   scrubbing. When the track's claim arrives after the page has already begun
   to follow the finger, the scrub wins: the page springs back to rest at
