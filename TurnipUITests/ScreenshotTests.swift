@@ -463,15 +463,40 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertTrue(waitUntilHittable(app.buttons["processing-clip-it"]), "the screen's controls did not settle")
         addScreenshot(named: "processing-browse")
 
-        // Left, starting on "Clip it": a drag from a corner control swipes like any other, and
-        // the control's tap stands down, so the screen stays up rather than pushing the clip list.
+        // Left, starting on "Clip it": a drag from a corner control swipes like any other. It
+        // lifts well off the button, so it checks the browse only; the tap standing down is
+        // `testProcessingCornerControlsStandDownWhileABrowseIsPending`.
         let clipIt = app.buttons["processing-clip-it"]
         clipIt.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(
             forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.1)),
             withVelocity: XCUIGestureVelocity(900), thenHoldForDuration: 0.05)
         XCTAssertTrue(waitForCenterColor(.green), "a swipe starting on Clip it did not browse to the next video")
-        XCTAssertTrue(
-            waitUntilHittable(clipIt), "Clip it fired under the swipe, or the landed screen's controls never arrived")
+        XCTAssertTrue(waitUntilHittable(clipIt), "the landed screen's controls never arrived")
+    }
+
+    /// While a committed browse is still waiting on its neighbor, the corner controls' taps
+    /// stand down: "Clip it" would open the clip list for the video sliding away, and the
+    /// chevron would leave for Home. `-browseHeld` starts the neighbor's browse but never lands
+    /// it, so the swipe stays in flight with the neighbor's poster on screen, and a tap that
+    /// acted would push the black clip list or pop to the stand-in Home, which nothing replaces.
+    func testProcessingCornerControlsStandDownWhileABrowseIsPending() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-screenshotProcessingBrowse", "-browseHeld"]
+        app.launch()
+        let clipIt = app.buttons["processing-clip-it"]
+        XCTAssertTrue(clipIt.waitForExistence(timeout: 15))
+        XCTAssertTrue(waitForCenterColor(.green), "did not start on the middle (green) stand-in video")
+
+        drag(app, fromX: 0.7, toX: 0.05, y: 0.5)
+        XCTAssertTrue(waitForCenterColor(.blue), "the left swipe did not carry the next video in")
+
+        clipIt.tap()
+        sleep(1)
+        XCTAssertTrue(waitForCenterColor(.blue), "Clip it acted on the video the swipe was leaving")
+
+        app.buttons["processing-back"].tap()
+        sleep(1)
+        XCTAssertTrue(waitForCenterColor(.blue), "the back chevron acted while the browse was pending")
     }
 
     /// Settings sheet at its defaults: the analysis-mode segmented control, the

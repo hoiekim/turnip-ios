@@ -53,7 +53,7 @@ struct TurnipApp: App {
                 } else if CommandLine.arguments.contains("-screenshotClipEditor") {
                     ScreenshotClipEditorHarness()
                 } else if CommandLine.arguments.contains("-screenshotProcessingBrowse") {
-                    ScreenshotProcessingBrowseHarness()
+                    ScreenshotProcessingBrowseHarness(landsBrowse: !CommandLine.arguments.contains("-browseHeld"))
                 } else if CommandLine.arguments.contains("-screenshotProcessingIdle") {
                     ScreenshotProcessingIdleHarness()
                 } else if CommandLine.arguments.contains("-screenshotProcessing") {

@@ -650,8 +650,14 @@ private struct ScreenshotProcessingRunner: ProcessingRunning {
 /// `PageSwipeLock` `RootTabView` applies. The UI test swipes and reads the screen's center
 /// color to tell which video landed — and whether the swipe reached the pager instead. The
 /// `/dev/null` assets never decode a frame, so the poster under each player is what shows.
+///
+/// With `landsBrowse` off (`-browseHeld`), a neighbor's browse starts but never replaces the
+/// screen, so a committed swipe stays in flight with the neighbor's poster on screen: the state
+/// in which the corner controls' taps must stand down. A tap that didn't would push the
+/// (black) clip list or pop to the stand-in Home, and nothing would replace either.
 struct ScreenshotProcessingBrowseHarness: View {
     static let colors: [UIColor] = [.systemRed, .systemGreen, .systemBlue]
+    var landsBrowse = true
     @State private var selectedTab = MainTab.home
     @State private var path: [Int] = [1]
 
@@ -684,7 +690,7 @@ struct ScreenshotProcessingBrowseHarness: View {
     private func neighbor(_ index: Int) -> BrowseNeighbor? {
         guard Self.colors.indices.contains(index) else { return nil }
         return BrowseNeighbor(poster: Self.poster(index)) {
-            path[path.count - 1] = index
+            if landsBrowse { path[path.count - 1] = index }
             return true
         }
     }

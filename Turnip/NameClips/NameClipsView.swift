@@ -12,8 +12,9 @@ import SwiftUI
 /// removes the one on screen. With no clip, it offers "Analyze clips" (`analyze`) and "Clip
 /// manually".
 ///
-/// The pager owns every horizontal drag, as Processing's browse swipe does, and holds the page's
-/// own vertical scroll still while it slides. The processing screen pushes this with the
+/// The pager owns every horizontal drag that starts above the bottom bar (the bar sits outside
+/// it, so a swipe that starts there doesn't page), and holds the page's own vertical scroll
+/// still while it slides. The processing screen pushes this with the
 /// pipeline's output, or with nothing from its "Clip it"; the back chevron pops to Home. This
 /// view declares no `NavigationStack` of its own.
 struct NameClipsView: View {
@@ -90,9 +91,7 @@ struct NameClipsView: View {
             }
         }
         // The card's size is worked out from this measurement, which ignores the keyboard: the
-        // keyboard scrolls the page instead of resizing the card. Measured afresh when the screen
-        // goes between empty and clips, since the empty state's bar is a different height from
-        // the paging bar the card sits over.
+        // keyboard scrolls the page instead of resizing the card.
         .background {
             GeometryReader { proxy in
                 Color.clear
@@ -102,7 +101,6 @@ struct NameClipsView: View {
                     }
             }
             .ignoresSafeArea(.keyboard)
-            .id(clips.isEmpty)
         }
         .disabled(viewModel.isSaving)
         .navigationTitle(title)

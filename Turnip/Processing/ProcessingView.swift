@@ -237,7 +237,7 @@ struct ProcessingView<Destination: View>: View {
         // One attachment, covering every page of the strip plus the safe-area-inset content
         // `videoStage` adds below its own video area, the strips outside the safe area through
         // the backdrop, and the corner controls: a drag that starts on the chevron or "Clip it"
-        // swipes like one that starts anywhere else, and the control's tap stands down
+        // swipes like one that starts anywhere else, without firing the control
         // (`isSwipeInFlight`). `.simultaneousGesture`, not `.highPriorityGesture`: nesting two
         // `.highPriorityGesture`s (this one and `VideoScrubBar`'s track) does not reliably let
         // the descendant win on device, so this one runs alongside the track's instead and
@@ -394,7 +394,9 @@ struct ProcessingView<Destination: View>: View {
     /// Whether a swipe has the page: a drag recognized and not yet ended, or a browse that a
     /// swipe committed to, still carrying the page away or waiting on the neighbor. The corner
     /// controls don't slide with the page, and a swipe can start on them, so their taps stand
-    /// down meanwhile rather than act on the video the swipe is leaving.
+    /// down meanwhile rather than act on the video the swipe is leaving. A drag that falls short
+    /// has already ended, and sprung back, by the time its lift reaches the control, so it still
+    /// counts as a tap.
     private var isSwipeInFlight: Bool {
         dragAxis != nil || committedDirection != nil || browsingNeighbor != nil
     }

@@ -556,8 +556,11 @@ default empty state, so it never reads as "your library is empty."
   back, a quick flick commits even when short, and at either end of the grid
   the page gives only a little, since there is no video that way. Where the
   drag starts makes no difference — the leading edge, the top band, the
-  bottom strip, the video itself, the back chevron and "Clip it" (whose tap
-  then doesn't fire) — with one carve-out: the scrub bar's own
+  bottom strip, the video itself, the back chevron and "Clip it" (a swipe
+  that starts on either doesn't fire it, and neither acts on a tap while a
+  committed swipe is still carrying the page away or waiting on the
+  neighbor; a drag that falls short and lifts on one is still its tap, as on
+  any button) — with one carve-out: the scrub bar's own
   track (`VideoScrubBar`), which claims a horizontal drag for
   scrubbing. When the track's claim arrives after the page has already begun
   to follow the finger, the scrub wins: the page springs back to rest at
@@ -656,12 +659,13 @@ edits it, and marking it for deletion, the one thing it offered, is gone too.
   - who's in it — me (default) or someone else. The first clip's choice
     carries to the rest of the video's clips; any clip can change it.
 - Horizontal paging: a swipe left goes to the next clip, a swipe right to the
-  previous one. The bottom bar pages too, with "Previous" in its leading corner
+  previous one. The bottom bar's buttons page too, with "Previous" in its leading corner
   and "Next" in its trailing one; the first clip has no "Previous", and on the
   last clip "Save Clips" takes "Next"'s corner. The buttons and the card's
   VoiceOver actions, Previous clip and Next clip, play the swipe's slide. As on Processing (§2), the paging
-  owns every horizontal drag — there is no edge-swipe back, only the chevron —
-  and at the first or last clip the page gives only a little. A drag that
+  owns every horizontal drag that starts above the bottom bar — there is no
+  edge-swipe back, only the chevron — but a swipe that starts on the bar
+  itself doesn't page, and at the first or last clip the page gives only a little. A drag that
   starts vertical scrolls the page instead and never pages, and one that starts
   horizontal holds the page's own scroll still while it slides, so a swipe
   that drifts up or down moves the page sideways only. Naming is never
