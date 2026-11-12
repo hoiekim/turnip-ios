@@ -123,6 +123,7 @@ For every line the diff DELETES or replaces, name the invariant it enforced. Sea
 - `Task.detached` vs `Task { … }` — detached loses the parent's `@MainActor` isolation.
 - `URLSession` completion handlers vs `async/await` — mixing the two on the same request leaks the completion path.
 - `Codable` decode failures throw at the first error and skip the rest of the container. If the diff adds a `decode(…)` that assumes all fields present, name the failure input.
+- **A system-reported frame whose contents are undocumented must be bounded before it is used as layout input.** The system does not document what a scene-reported rect contains on a new form factor — a status bar frame can span the whole column, not just the strip across the top. A diff that reads such a frame as layout input must clamp it to the range the layout can use and fall back to a measured default outside that range. Flag any diff that feeds a system-reported rect straight into a layout offset, padding, or frame without such a bound; the failure it prevents is controls pushed off-screen by a value the code assumed was a strip.
 
 **TypeScript / Bun** (for turnip-farm when it lands):
 - Add TypeScript / Bun pitfalls to this section when turnip-farm lands.
