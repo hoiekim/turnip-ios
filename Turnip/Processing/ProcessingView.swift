@@ -80,8 +80,9 @@ struct ProcessingView<Destination: View>: View {
         /// `translation.height`.
         let onChanged: (CGFloat) -> Void
         /// Called once the drag ends on the vertical axis — the presenter owns the commit/
-        /// cancel decision and the close flight from here.
-        let onEnded: (_ translation: CGFloat, _ predictedTranslation: CGFloat) -> Void
+        /// cancel decision and the close flight from here. Returns whether it committed, so the
+        /// screen knows it is leaving (`isLeaving`).
+        let onEnded: (_ translation: CGFloat, _ predictedTranslation: CGFloat) -> Bool
         /// Called when the system cancels the drag before `onEnded` can run (an incoming call,
         /// Control Center) — the presenter's recovery signal, the same role
         /// `ClipExpansionContainer`'s `didHandleDragEnd`/`onChange` pairing plays: without it, a
@@ -112,6 +113,9 @@ struct ProcessingView<Destination: View>: View {
     /// (the page springs back); further drags are ignored meanwhile, so an impatient second
     /// swipe can't drag the departed video back onto the screen.
     @State private var committedDirection: BrowseSwipe.Direction?
+    /// Set once a swipe down commits to closing this screen, and never cleared: the screen is
+    /// on its way out.
+    @State private var isLeaving = false
     /// Set by `VideoScrubBar` while a horizontal drag on its track is in progress. Guards
     /// `videoSwipeGesture` so a drag that starts on the scrub track only scrubs, never also
     /// carries the page along — see that gesture's own doc comment.
@@ -391,14 +395,16 @@ struct ProcessingView<Destination: View>: View {
         }
     }
 
-    /// Whether a swipe has the page: a drag recognized and not yet ended, or a browse that a
-    /// swipe committed to, still carrying the page away or waiting on the neighbor. The corner
-    /// controls don't slide with the page, and a swipe can start on them, so their taps stand
-    /// down meanwhile rather than act on the video the swipe is leaving. A drag that falls short
-    /// has already ended, and sprung back, by the time its lift reaches the control, so it still
-    /// counts as a tap.
+    /// Whether a swipe has the page: a drag recognized and not yet ended, a browse that a swipe
+    /// committed to, still carrying the page away or waiting on the neighbor, or a swipe down
+    /// that committed to closing the screen. The corner controls don't slide with the page, and
+    /// a swipe can start on them, so their taps stand down meanwhile rather than act on the video
+    /// the swipe is leaving. A control's action runs after the swipe's own end, so a quick flick
+    /// that lifts on the control relies on the committed state here, not on `dragAxis`. A drag
+    /// that falls short has already ended, and sprung back, by the time its lift reaches the
+    /// control, so it still counts as a tap.
     private var isSwipeInFlight: Bool {
-        dragAxis != nil || committedDirection != nil || browsingNeighbor != nil
+        dragAxis != nil || committedDirection != nil || browsingNeighbor != nil || isLeaving
     }
 
     /// What the top-leading control does, and what letting go of a committed swipe-down does
@@ -552,13 +558,14 @@ struct ProcessingView<Destination: View>: View {
                 if dragAxis == .vertical {
                     defer { isTrackingDismissDrag = false }
                     guard canBrowse else { return }
-                    if let hooks = dismissGestureHooks {
-                        hooks.onEnded(value.translation.height, value.predictedEndTranslation.height)
-                        return
-                    }
                     let translation = value.translation.height
                     let predicted = value.predictedEndTranslation.height
+                    if let hooks = dismissGestureHooks {
+                        if hooks.onEnded(translation, predicted) { isLeaving = true }
+                        return
+                    }
                     if translation >= BrowseSwipe.commitDistance || predicted >= BrowseSwipe.flickDistance {
+                        isLeaving = true
                         handleBackAction()
                     }
                     return
