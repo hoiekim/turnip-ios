@@ -571,10 +571,12 @@ struct ScreenshotProcessingPoseRunner: ProcessingRunning {
 }
 
 /// Processing's resting state (`-screenshotProcessingIdle`): the picked video filling
-/// the screen with no native playback chrome, the thin scrub bar, and the manual
-/// "Analyze clips" button. `autostart: false` so the pipeline never actually runs.
-/// The destination is a labeled stand-in rather than `EmptyView`, so the UI test that taps
-/// "Clip manually" can see the push land and read the result it landed with.
+/// the screen with no native playback chrome, the thin scrub bar, and "Clip it" in the
+/// top-trailing corner. `autostart: false`, so nothing runs until the clip list's "Analyze
+/// clips" asks; the scripted runner then reports one frame of progress and holds, like
+/// `-screenshotProcessing`'s. The destination is the real Name Clips, wired the way Home wires
+/// it, so the UI test that taps "Clip it" reads the empty state it lands on and drives its
+/// "Analyze clips" back to this screen.
 struct ScreenshotProcessingIdleHarness: View {
     var body: some View {
         NavigationStack {
@@ -583,10 +585,17 @@ struct ScreenshotProcessingIdleHarness: View {
                     assetIdentifier: "screenshot",
                     asset: AVURLAsset(url: URL(fileURLWithPath: "/dev/null")),
                     duration: 60),
+                runner: ScreenshotProcessingRunner(),
                 autostart: false,
-                destination: { result, _ in
-                    Text(result.analysisSkipped ? "Clip list stand-in: skipped" : "Clip list stand-in")
-                        .accessibilityIdentifier("clip-list-stand-in")
+                destination: { result, actions in
+                    NameClipsView(
+                        items: [],
+                        asset: result.asset,
+                        assetIdentifier: "screenshot",
+                        duration: 60,
+                        showsNoTricksFound: result.clips.isEmpty && !result.analysisSkipped,
+                        popToRoot: actions.popToRoot,
+                        analyze: actions.analyze)
                 })
         }
     }
