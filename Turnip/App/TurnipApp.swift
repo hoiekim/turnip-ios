@@ -48,10 +48,12 @@ struct TurnipApp: App {
                     ScreenshotClipListMediaHarness()
                 } else if CommandLine.arguments.contains("-screenshotClipList") {
                     ScreenshotClipListHarness()
+                } else if CommandLine.arguments.contains("-screenshotNameClipsCameraEmpty") {
+                    ScreenshotNameClipsCameraEmptyHarness()
                 } else if CommandLine.arguments.contains("-screenshotClipEditor") {
                     ScreenshotClipEditorHarness()
                 } else if CommandLine.arguments.contains("-screenshotProcessingBrowse") {
-                    ScreenshotProcessingBrowseHarness()
+                    ScreenshotProcessingBrowseHarness(landsBrowse: !CommandLine.arguments.contains("-browseHeld"))
                 } else if CommandLine.arguments.contains("-screenshotProcessingIdle") {
                     ScreenshotProcessingIdleHarness()
                 } else if CommandLine.arguments.contains("-screenshotProcessing") {
@@ -85,6 +87,7 @@ struct TurnipApp: App {
             ) { _ in
                 ModelUpdateLifecycle.checkForUpdates()
                 Task { await FarmAccount.shared.verifyAppleCredential() }
+                Task { await ContributionRegion.turnOffContributingIfUnavailable(settings: .shared) }
                 ContributionOutbox.shared.resume()
                 Task { await PersonalLayer.shared.start() }
             }

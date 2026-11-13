@@ -32,11 +32,7 @@ it stands on is in the app: the trick-model loader, with pre-fill and
 the blind sample (`CONTRIBUTION_DESIGN.md` §7.2), and the clip library
 (`PROFILE_DESIGN.md` §2), which keeps each saved clip's pose (§2.2). One
 thing is still missing: no model has been published, so no device has
-embeddings to read and the layer stays off (§10). How the build differs
-from this doc:
-
-- Tier 3 of §4.2, the model's below-bar names, is not built. The
-  suggestions go from tier 2 to the vocabulary.
+embeddings to read and the layer stays off (§10).
 
 This work is iOS-only.
 
@@ -122,7 +118,7 @@ Almost everything is already in the clip library (`PROFILE_DESIGN.md`
   and its provenance (`auto_detected`, `proposal_model_version`,
   `suggested_names`, `suggestions_withheld`). A clip marked "video
   deleted" still counts, since its pose remains. Sources reached by
-  "Clip manually" have no pose and contribute nothing, nor do clips
+  "Clip it" and never analyzed have no pose and contribute nothing, nor do clips
   saved before the library kept pose, or a clip added by hand following
   everyone.
 - **Dismissed windows (new).** For each source a save writes to the

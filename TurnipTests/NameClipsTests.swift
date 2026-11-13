@@ -99,8 +99,8 @@ final class NameClipsTests: XCTestCase {
         }
     }
 
-    /// With Contribute named clips on, only saved, named clips go; the sequence is the first
-    /// clip's person's, and another person's clip stays behind.
+    /// With Contribute named clips on, only saved, named clips go; the sequence is the person's
+    /// of the first clip marked as the user, and another person's clip stays behind.
     func testPlanSendsTheFirstPersonsSavedNamedClips() async {
         let named = [ClipName(name: "cork", origin: .typed)]
         let first = item(1, person: 1, names: named)
@@ -116,7 +116,7 @@ final class NameClipsTests: XCTestCase {
         XCTAssertEqual(plan.source?.videoID, VideoIdentity.videoID(forAssetIdentifier: "asset-1"))
     }
 
-    /// Contribute named clips off, or a video with no pose analysis ("Clip manually"): nothing to
+    /// Contribute named clips off, or a video with no pose analysis ("Clip it"): nothing to
     /// contribute, so the sheet never opens.
     func testPlanIsEmptyWhileTheSettingIsOffOrTheVideoHasNoPose() async {
         let named = [ClipName(name: "cork", origin: .typed)]
@@ -150,6 +150,20 @@ final class NameClipsTests: XCTestCase {
         XCTAssertEqual(NameClipsLayout.cardSide(for: CGSize(width: 393, height: 585)), 345)
         XCTAssertEqual(NameClipsLayout.cardSide(for: CGSize(width: 375, height: 473)), 233)
         XCTAssertEqual(NameClipsLayout.cardSide(for: CGSize(width: 320, height: 400)), 220)
+    }
+
+    /// The card follows the page until it settles, bottom bar and all, but not the bar stepping
+    /// aside for the keyboard while the name field has focus. Sizes measured on an iPhone SE.
+    func testCardFollowsThePageUnlessTheNameFieldHasFocus() {
+        let barless = CGSize(width: 375, height: 576.5)
+        let settled = CGSize(width: 375, height: 502.5)
+        let typing = CGSize(width: 375, height: 593)
+        XCTAssertTrue(NameClipsLayout.acceptsMeasurement(barless, over: .zero, isFieldFocused: false))
+        XCTAssertTrue(NameClipsLayout.acceptsMeasurement(settled, over: barless, isFieldFocused: false))
+        XCTAssertFalse(NameClipsLayout.acceptsMeasurement(typing, over: settled, isFieldFocused: true))
+        XCTAssertTrue(NameClipsLayout.acceptsMeasurement(typing, over: .zero, isFieldFocused: true))
+        XCTAssertTrue(NameClipsLayout.acceptsMeasurement(
+            CGSize(width: 667, height: 300), over: settled, isFieldFocused: true))
     }
 
     // MARK: - Vocabulary
