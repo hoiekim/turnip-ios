@@ -273,6 +273,24 @@ A run prints its scores (`TURNIP_EVAL` lines), writes them to
 running the model again: seconds instead of minutes, and identical frames on
 both sides of a detector change.
 
+### Shirt colour evaluation
+
+`ShirtColorEvaluationTests` measures Clip List's shirt colour filter on the same
+footage: how well it keeps one person's clips and hides everyone else's, beside
+the alternatives it could use instead. It reads only the videos with a trick
+labelled with that person (a `person` in `labels.json`, with `at` where they are
+when others are in frame), and names them on the run:
+
+```
+TEST_RUNNER_TURNIP_EVAL_DIR=$HOME/turnip-eval TEST_RUNNER_TURNIP_EVAL_ME=<person> \
+  xcodebuild test -workspace Turnip.xcworkspace -scheme Turnip \
+  -destination "id=$UDID" -only-testing:TurnipTests/ShirtColorEvaluationTests
+```
+
+It prints `TURNIP_SHIRT` lines and writes `results/shirt-<label>.json`, numbers
+only, and draws each clip's read frames under `shirt/<video>/` in the evaluation
+directory, where they stay.
+
 ## Lint
 
 SwiftLint runs in CI on every PR (the `build-and-test` job's `Lint` step —
